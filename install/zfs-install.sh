@@ -178,14 +178,31 @@ run_cmd() {
 install_packages() {
     log_step "Installing required packages"
 
+    log_info "Adding bookworm-backports repository..."
+    # Add backports repository
+    if ! grep -q "bookworm-backports" /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
+        echo "deb http://deb.debian.org/debian bookworm-backports main non-free-firmware contrib" >> /etc/apt/sources.list
+    fi
+
     run_cmd apt update
+    
+    # Install ZFS packages from backports
+    log_info "Installing ZFS packages from backports..."
+    run_cmd apt install -y -t bookworm-backports \
+        zfsutils-linux \
+        zfs-initramfs \
+        libnvpair3linux \
+        libuutil3linux \
+        libzfs6linux \
+        libzpool6linux
+
+    # Install other required packages
+    log_info "Installing other required packages..."
     run_cmd apt install -y \
         debootstrap \
         gdisk \
         dkms \
         "linux-headers-$(uname -r)" \
-        zfsutils-linux \
-        zfs-initramfs \
         curl \
         dosfstools \
         efibootmgr \
@@ -409,10 +426,18 @@ locale-gen en_US.UTF-8
 update-locale LANG=en_US.UTF-8
 
 # Install kernel and ZFS
-apt install -y \
+log_info "Installing kernel and ZFS packages from backports..."
+apt install -y -t bookworm-backports \
     linux-headers-amd64 \
     linux-image-amd64 \
     zfs-initramfs \
+    zfsutils-linux \
+    libnvpair3linux \
+    libuutil3linux \
+    libzfs6linux \
+    libzpool6linux
+
+apt install -y \
     dosfstools \
     efibootmgr \
     locales \
