@@ -69,6 +69,27 @@ fi
 check_prerequisites() {
     log_step "Checking prerequisites"
 
+    # Check required packages
+    local required_packages=(zfs zpool blkid mkfs.vfat curl efibootmgr)
+    local missing_packages=()
+
+    for pkg in "${required_packages[@]}"; do
+        if ! command -v "$pkg" &>/dev/null; then
+            missing_packages+=("$pkg")
+        fi
+    done
+
+    if [ ${#missing_packages[@]} -gt 0 ]; then
+        log_error "Missing required packages:"
+        for pkg in "${missing_packages[@]}"; do
+            log_error "  - $pkg"
+        done
+        log_info ""
+        log_info "Install missing packages:"
+        log_info "  apt install -y dosfstools efibootmgr curl"
+        exit 1
+    fi
+
     # Check pool
     if ! zpool list "$POOL_NAME" &>/dev/null; then
         log_error "Pool $POOL_NAME not found!"
@@ -137,6 +158,30 @@ mount_efi() {
         return 0
     fi
 
+    # Check if partition is formatted as FAT
+    local fs_type
+    fs_type=$(blkid -s TYPE -o value "$BOOT_DEVICE" 2>/dev/null || echo "")
+    
+    if [ "$fs_type" != "vfat" ]; then
+        log_warn "EFI partition is not formatted as FAT32!"
+        log_info "Formatting $BOOT_DEVICE as FAT32..."
+        
+        # Check if dosfstools is installed
+        if ! command -v mkfs.vfat &>/dev/null; then
+            log_error "mkfs.vfat not found! Install dosfstools first."
+            log_info "Run: apt install -y dosfstools"
+            exit 1
+        fi
+        
+        # Format partition
+        mkfs.vfat -F32 "$BOOT_DEVICE" || {
+            log_error "Failed to format EFI partition!"
+            exit 1
+        }
+        
+        log_info "EFI partition formatted successfully"
+    fi
+
     # Add fstab entry if not exists
     if ! grep -q "/boot/efi" /etc/fstab; then
         log_info "Adding entry to /etc/fstab..."
@@ -153,9 +198,15 @@ mount_efi() {
     # Mount
     log_info "Mounting /boot/efi..."
     mkdir -p /boot/efi
-    mount /boot/efi
+    
+    # Try to mount with explicit filesystem type
+    mount -t vfat "$BOOT_DEVICE" /boot/efi || {
+        log_error "Failed to mount EFI partition!"
+        log_info "Try manual mount: mount -t vfat $BOOT_DEVICE /boot/efi"
+        exit 1
+    }
 
-    log_info "EFI mounted"
+    log_info "EFI mounted successfully"
 }
 
 download_zfsbootmenu() {
