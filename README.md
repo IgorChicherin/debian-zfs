@@ -136,6 +136,54 @@ bash scripts/test-vm.sh --disk /dev/sdX
 2. **ZFSBootMenu replaces GRUB** — do not install GRUB when using ZFSBootMenu
 3. **Do not use zram-tools and systemd-zram-generator simultaneously** — choose one (systemd is recommended)
 4. **EFI backup** — always backup VMLINUZ.EFI before updates
+5. **Kernel not found error** — if ZFSBootMenu shows "failed to find kernels", run:
+   ```bash
+   sudo bash install/zbm-check-kernels.sh --pool zroot --dataset ROOT/bookworm --fix
+   ```
+
+## 🐛 Troubleshooting
+
+### ZFSBootMenu: "failed to find kernels"
+
+This error means ZFSBootMenu cannot find kernel files in the dataset.
+
+**Quick fix:**
+```bash
+sudo bash install/zbm-check-kernels.sh --pool zroot --dataset ROOT/bookworm --fix
+```
+
+**Manual fix:**
+```bash
+# Mount the dataset
+zfs set mountpoint=/mnt zroot/ROOT/bookworm
+zfs mount zroot/ROOT/bookworm
+
+# Check for kernels
+ls -la /mnt/boot/vmlinuz-*
+ls -la /mnt/boot/initrd.img-*
+
+# If missing, chroot and reinstall kernel
+mount --bind /dev /mnt/dev
+mount --bind /proc /mnt/proc
+mount --bind /sys /mnt/sys
+chroot /mnt
+apt install --reinstall linux-image-amd64
+update-initramfs -c -k all
+exit
+
+# Unmount
+zfs unmount zroot/ROOT/bookworm
+zfs set mountpoint=/ zroot/ROOT/bookworm
+```
+
+### ZRAM not activating
+
+In live environments, ZRAM may not activate. The configuration is saved and will apply after reboot.
+
+**Check status:**
+```bash
+sudo bash install/zram-config.sh --status
+```
 
 ## 📚 Documentation
 

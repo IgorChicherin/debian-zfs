@@ -435,7 +435,15 @@ apt install -y -t bookworm-backports \
     libnvpair3linux \
     libuutil3linux \
     libzfs6linux \
-    libzpool6linux
+    libzpool6linux || {
+    log_error "Failed to install kernel and ZFS packages!"
+    log_info "Trying without backports..."
+    apt install -y \
+        linux-headers-amd64 \
+        linux-image-amd64 \
+        zfs-initramfs \
+        zfsutils-linux
+}
 
 apt install -y \
     dosfstools \
@@ -450,8 +458,40 @@ apt install -y \
     cpio \
     kexec-tools
 
+# Verify kernel installation
+log_info "Verifying kernel installation..."
+if [ ! -f /boot/vmlinuz-* ] || [ ! -f /boot/initrd.img-* ]; then
+    log_error "Kernel files not found in /boot!"
+    log_info "Files in /boot:"
+    ls -la /boot/ || true
+    log_warn "Installation may be incomplete!"
+else
+    log_info "Kernel files found:"
+    ls -lh /boot/vmlinuz-* /boot/initrd.img-* 2>/dev/null || true
+fi
+
 # Configure DKMS for ZFS
 echo "REMAKE_INITRD=yes" > /etc/dkms/zfs.conf
+
+# Configure initramfs for ZFS
+log_info "Configuring initramfs for ZFS..."
+
+# Add ZFS modules to initramfs
+cat > /etc/initramfs-tools/modules.d/zfs << 'EOF'
+# ZFS modules for initramfs
+zfs
+zcommon
+znvpair
+zavl
+zunicode
+zlua
+icp
+spl
+zunicode
+EOF
+
+# Enable ZFS in initramfs
+echo "ZFS_INITRD=yes" > /etc/initramfs-tools/conf.d/zfs
 
 # Enable ZFS services
 systemctl enable zfs.target
@@ -465,8 +505,18 @@ if [ "$ENCRYPT_VAR" = "true" ]; then
 fi
 
 # Rebuild initramfs
-log_info "Rebuilding initramfs..."
+log_info "Rebuilding initramfs with ZFS support..."
 update-initramfs -c -k all
+
+# Verify initramfs creation
+log_info "Verifying initramfs..."
+if [ ! -f /boot/initrd.img-* ]; then
+    log_error "initramfs not created!"
+    log_warn "This may cause boot issues"
+else
+    log_info "initramfs created successfully"
+    ls -lh /boot/initrd.img-* 2>/dev/null || true
+fi
 
 # Configure ZRAM (will be done by separate script)
 log_info "ZRAM configured via systemd-zram-generator"
