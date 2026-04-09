@@ -189,7 +189,8 @@ install_packages() {
         curl \
         dosfstools \
         efibootmgr \
-        zfsbootmenu
+        cpio \
+        kexec-tools
 }
 
 prepare_disk() {
@@ -421,7 +422,8 @@ apt install -y \
     sudo \
     curl \
     systemd-zram-generator \
-    zfsbootmenu
+    cpio \
+    kexec-tools
 
 # Configure DKMS for ZFS
 echo "REMAKE_INITRD=yes" > /etc/dkms/zfs.conf
@@ -432,38 +434,14 @@ systemctl enable zfs-import-cache
 systemctl enable zfs-mount
 systemctl enable zfs-import.target
 
-# Configure ZFSBootMenu
-log_info "Configuring ZFSBootMenu..."
-
-# Create ZFSBootMenu configuration directory
-mkdir -p /etc/zfsbootmenu
-
-# Create ZFSBootMenu configuration (YAML format)
-cat > /etc/zfsbootmenu.conf << ZBM_CONFIG
-# ZFSBootMenu Configuration
-Global:
-  # Kernel command line arguments
-  CommandLine: "quiet loglevel=0 zfs=$POOL_NAME_VAR/ROOT/$DEBIAN_RELEASE"
-
-# Dataset-specific properties are set via zfs set commands
-ZBM_CONFIG
-
 # For encryption
 if [ "$ENCRYPT_VAR" = "true" ]; then
     echo "UMASK=0077" > /etc/initramfs-tools/conf.d/umask.conf
-    # Add encryption key location to config
-    echo "KeySource=\"${POOL_NAME_VAR}/ROOT/${DEBIAN_RELEASE}\"" >> /etc/zfsbootmenu.conf
 fi
 
-# Rebuild initramfs with ZFSBootMenu
-log_info "Rebuilding initramfs with ZFSBootMenu..."
+# Rebuild initramfs
+log_info "Rebuilding initramfs..."
 update-initramfs -c -k all
-
-# Generate ZFSBootMenu EFI image
-log_info "Generating ZFSBootMenu EFI image..."
-generate-zbm 2>/dev/null || {
-    log_warn "generate-zbm not available or failed, will use manual EFI binary"
-}
 
 # Configure ZRAM (will be done by separate script)
 log_info "ZRAM configured via systemd-zram-generator"
@@ -521,47 +499,35 @@ EOF
 install_zfsbootmenu() {
     log_step "Installing ZFSBootMenu"
 
-    # ZFSBootMenu package should create /boot/efi/EFI/ZBM automatically
-    # We just need to ensure the EFI partition is mounted and configured
-    log_info "ZFSBootMenu package installed"
-    log_info "Ensuring EFI boot entries..."
+    # Create directory for ZFSBootMenu
+    log_info "Creating ZFSBootMenu directory..."
+    run_cmd chroot "$MOUNT_POINT" mkdir -p /boot/efi/EFI/ZBM
 
-    # Create EFI boot entries using efibootmgr
-    # Note: This assumes ZFSBootMenu EFI binary is at the expected location
-    # The exact path may vary: /EFI/ZBM/VMLINUZ.EFI or /EFI/zfsbootmenu/VMLINUZ.EFI
+    # Download latest ZFSBootMenu EFI binary from GitHub releases
+    log_info "Downloading ZFSBootMenu EFI binary..."
+    
+    # Get latest release URL
+    local ZBM_URL="https://github.com/zbm-dev/zfsbootmenu/releases/latest/download/VMLINUZ.EFI"
+    
+    run_cmd chroot "$MOUNT_POINT" curl -fSL -o /boot/efi/EFI/ZBM/VMLINUZ.EFI \
+        "$ZBM_URL" || {
+        log_error "Failed to download ZFSBootMenu EFI binary!"
+        log_info "Trying alternative URL..."
+        
+        # Fallback URL
+        run_cmd chroot "$MOUNT_POINT" curl -fSL -o /boot/efi/EFI/ZBM/VMLINUZ.EFI \
+            "https://get.zfsbootmenu.org/efi" || {
+            log_error "All download methods failed!"
+            log_warn "You may need to manually download VMLINUZ.EFI"
+            log_warn "Place it at: $MOUNT_POINT/boot/efi/EFI/ZBM/VMLINUZ.EFI"
+            return 1
+        }
+    }
 
-    # Try common paths for the EFI binary
-    local efi_paths=(
-        '\EFI\ZBM\VMLINUZ.EFI'
-        '\EFI\zfsbootmenu\VMLINUZ.EFI'
-        '\EFI\ZBM\BOOTX64.EFI'
-    )
-
-    local found_efi=""
-    for efi_path in "${efi_paths[@]}"; do
-        if run_cmd chroot "$MOUNT_POINT" test -f "/boot/efi${efi_path//\\//}"; then
-            found_efi="$efi_path"
-            log_info "Found ZFSBootMenu EFI binary at: $found_efi"
-            break
-        fi
-    done
-
-    if [ -z "$found_efi" ]; then
-        log_warn "ZFSBootMenu EFI binary not found at expected locations!"
-        log_info "Falling back to downloading generic EFI binary..."
-
-        # Create directory and download generic EFI binary
-        run_cmd chroot "$MOUNT_POINT" mkdir -p /boot/efi/EFI/ZBM
-
-        run_cmd chroot "$MOUNT_POINT" curl -o /boot/efi/EFI/ZBM/VMLINUZ.EFI \
-            -L https://get.zfsbootmenu.org/efi
-
-        # Create backup copy
-        run_cmd chroot "$MOUNT_POINT" cp /boot/efi/EFI/ZBM/VMLINUZ.EFI \
-            /boot/efi/EFI/ZBM/VMLINUZ-BACKUP.EFI
-
-        found_efi='\EFI\ZBM\VMLINUZ.EFI'
-    fi
+    # Create backup copy
+    log_info "Creating backup copy..."
+    run_cmd chroot "$MOUNT_POINT" cp /boot/efi/EFI/ZBM/VMLINUZ.EFI \
+        /boot/efi/EFI/ZBM/VMLINUZ-BACKUP.EFI
 
     # Configure EFI boot entries
     log_info "Creating EFI boot entries..."
@@ -569,16 +535,16 @@ install_zfsbootmenu() {
     # Primary entry
     run_cmd efibootmgr -c -d "$DISK" -p "$BOOT_PART" \
         -L "ZFSBootMenu" \
-        -l "$found_efi"
+        -l '\EFI\ZBM\VMLINUZ.EFI' || {
+        log_warn "Failed to create EFI boot entry (may need to be done manually)"
+    }
 
-    # Backup entry (if different from primary)
-    local backup_efi="${found_efi/VMLINUZ.EFI/VMLINUZ-BACKUP.EFI}"
-    if [ "$found_efi" != "$backup_efi" ]; then
-        run_cmd chroot "$MOUNT_POINT" test -f "/boot/efi${backup_efi//\\//}" && \
-            run_cmd efibootmgr -c -d "$DISK" -p "$BOOT_PART" \
-                -L "ZFSBootMenu (Backup)" \
-                -l "$backup_efi" || true
-    fi
+    # Backup entry
+    run_cmd efibootmgr -c -d "$DISK" -p "$BOOT_PART" \
+        -L "ZFSBootMenu (Backup)" \
+        -l '\EFI\ZBM\VMLINUZ-BACKUP.EFI' || {
+        log_warn "Failed to create backup EFI boot entry"
+    }
 
     log_info "ZFSBootMenu installed and configured"
 }
@@ -625,6 +591,8 @@ finalize() {
     log_info "  3. Select 'ZFSBootMenu' in UEFI"
     log_info "  4. Login (root / $ROOT_PASSWORD)"
     log_info "  5. CHANGE password: passwd"
+    log_info ""
+    log_info "Note: ZFSBootMenu installed as EFI binary (no package required)"
     log_info ""
     if [ "$ENCRYPT" = true ]; then
         log_warn "WARNING: Passphrase will be required for ZFS at boot!"
