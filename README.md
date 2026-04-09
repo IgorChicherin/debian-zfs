@@ -1,32 +1,32 @@
 # Debian Bookworm ZFS Root + ZFSBootMenu + ZRAM
 
-Автоматизированная установка Debian Bookworm (12) с корневой файловой системой на ZFS, загрузчиком ZFSBootMenu и сжатой RAM-подкачкой ZRAM.
+Automated Debian Bookworm (12) installation with ZFS root filesystem, ZFSBootMenu bootloader, and ZRAM compressed swap.
 
-## 📋 Особенности
+## 📋 Features
 
-- **ZFS Root** — корневая ФС на ZFS с compression=lz4, autotrim, ACL
-- **ZFSBootMenu** — современный загрузчик с поддержкой снапшотов и кастомных ядер
-- **ZRAM** — сжатая подкачка в RAM через systemd-zram-generator (60% RAM, zstd)
-- **UEFI** — поддержка UEFI-загрузки с EFI System Partition
-- **Шифрование** — опциональное ZFS native encryption (AES-256-GCM)
-- **Кастомный ISO** — сборка собственного Live-образа через live-build
+- **ZFS Root** — Root filesystem on ZFS with compression=lz4, autotrim, ACL
+- **ZFSBootMenu** — Modern bootloader with snapshot support and custom kernels
+- **ZRAM** — Compressed RAM swap via systemd-zram-generator (60% RAM, zstd)
+- **UEFI** — UEFI boot support with EFI System Partition
+- **Encryption** — Optional ZFS native encryption (AES-256-GCM)
+- **Custom ISO** — Build your own Live image via live-build
 
-## 🗂 Структура проекта
+## 🗂 Project Structure
 
 ```
 debian-zfs/
-├── README.md                      # Этот файл
-├── Makefile                       # Автоматизация сборки ISO
+├── README.md                      # This file
+├── Makefile                       # Build automation for ISO
 ├── install/
-│   ├── zfs-install.sh             # Основной скрипт установки ZFS root
-│   ├── zfsbootmenu-setup.sh       # Настройка ZFSBootMenu
-│   └── zram-config.sh             # Настройка ZRAM
+│   ├── zfs-install.sh             # Main ZFS root installation script
+│   ├── zfsbootmenu-setup.sh       # ZFSBootMenu setup
+│   └── zram-config.sh             # ZRAM configuration
 ├── config/
 │   ├── zfsbootmenu/
-│   │   └── config.yaml            # Конфигурация ZFSBootMenu
+│   │   └── config.yaml            # ZFSBootMenu configuration
 │   ├── zram/
-│   │   └── zram-generator.conf    # Конфигурация ZRAM
-│   └── live-build/                # Конфигурация для сборки ISO
+│   │   └── zram-generator.conf    # ZRAM configuration
+│   └── live-build/                # ISO build configuration
 │       ├── package-lists/
 │       │   └── zfs.list.chroot
 │       ├── includes.chroot/
@@ -34,122 +34,122 @@ debian-zfs/
 │       └── auto/
 │           └── config
 ├── scripts/
-│   ├── build-iso.sh               # Сборка кастомного ISO
-│   ├── test-vm.sh                 # Тестирование в QEMU
-│   └── usb-write.sh               # Запись на USB-накопитель
+│   ├── build-iso.sh               # Custom ISO build script
+│   ├── test-vm.sh                 # QEMU testing script
+│   └── usb-write.sh               # USB drive writing script
 └── docs/
-    ├── ARCHITECTURE.md            # Архитектура и структура датасетов
-    ├── TESTING.md                 # Руководство по тестированию
-    └── SOURCES.md                 # Источники документации
+    ├── ARCHITECTURE.md            # Architecture and dataset structure
+    ├── TESTING.md                 # Testing guide
+    └── SOURCES.md                 # Documentation sources
 ```
 
-## 🚀 Быстрый старт
+## 🚀 Quick Start
 
-### 1. Подготовка Live-среды
+### 1. Prepare Live Environment
 
 ```bash
-# Загрузите Debian Bookworm netinst или live ISO
+# Download Debian Bookworm netinst or live ISO
 # https://www.debian.org/download
 
-# В live-среде выполните:
+# In the live environment, run:
 sudo -i
-git clone <этого репозитория>
+git clone <this repository>
 cd debian-zfs
 ```
 
-### 2. Установка ZFS Root
+### 2. Install ZFS Root
 
 ```bash
-# Проверьте диски
+# Check disks
 lsblk
 
-# Отредактируйте переменные в install/zfs-install.sh:
-# DISK="/dev/sda"  # ваш диск
-# BOOT_PART="1"    # EFI раздел
-# POOL_PART="2"    # ZFS раздел
+# Edit variables in install/zfs-install.sh:
+# DISK="/dev/sda"  # your disk
+# BOOT_PART="1"    # EFI partition
+# POOL_PART="2"    # ZFS partition
 
-# Запустите установку (без шифрования):
+# Run installation (without encryption):
 sudo bash install/zfs-install.sh --disk /dev/sda
 
-# Или с шифрованием:
+# Or with encryption:
 sudo bash install/zfs-install.sh --disk /dev/sda --encrypt --passphrase "YOUR_PASSPHRASE"
 ```
 
-### 3. Настройка ZFSBootMenu
+### 3. Setup ZFSBootMenu
 
 ```bash
-# Автоматическая настройка:
+# Automatic setup:
 sudo bash install/zfsbootmenu-setup.sh
 
-# Или вручную следуйте инструкциям в docs/ARCHITECTURE.md
+# Or manually follow instructions in docs/ARCHITECTURE.md
 ```
 
-### 4. Настройка ZRAM
+### 4. Configure ZRAM
 
 ```bash
-# Установка и настройка ZRAM:
+# Install and configure ZRAM:
 sudo bash install/zram-config.sh
 ```
 
-## 🛠 Сборка кастомного ISO
+## 🛠 Building Custom ISO
 
 ```bash
-# Установка зависимостей (Debian):
+# Install dependencies (Debian):
 sudo apt install live-build
 
-# Сборка ISO:
+# Build ISO:
 make build
 
-# Или напрямую:
+# Or directly:
 sudo bash scripts/build-iso.sh
 
-# Запись на USB:
-sudo bash scripts/usb-write.sh /dev/sdX  # ВНИМАНИЕ: правильный диск!
+# Write to USB:
+sudo bash scripts/usb-write.sh /dev/sdX  # WARNING: use correct disk!
 ```
 
-## 🧪 Тестирование в QEMU
+## 🧪 Testing in QEMU
 
 ```bash
-# Тестирование ISO в виртуальной машине:
+# Test ISO in virtual machine:
 make test
 
-# Или напрямую:
+# Or directly:
 bash scripts/test-vm.sh output/debian-zfs.iso
 
-# Тестирование установленной системы:
+# Test installed system:
 bash scripts/test-vm.sh --disk /dev/sdX
 ```
 
-## 📦 Версии пакетов (Апрель 2026)
+## 📦 Package Versions (April 2026)
 
-| Пакет | Версия | Источник |
-|-------|--------|----------|
+| Package | Version | Source |
+|---------|---------|--------|
 | zfsutils-linux | 2.3.2+ (backports) | bookworm-backports |
 | zfs-initramfs | 2.3.2+ (backports) | bookworm-backports |
 | ZFSBootMenu | 3.1.x | get.zfsbootmenu.org |
 | systemd-zram-generator | 1.1.2+ | bookworm |
 | linux-image-amd64 | 6.1.x LTS | bookworm |
 
-## ⚠️ Важные замечания
+## ⚠️ Important Notes
 
-1. **ZFS не входит в Debian Installer** из-за лицензионных ограничений — установка выполняется вручную через debootstrap
-2. **ZFSBootMenu заменяет GRUB** — не устанавливайте GRUB при использовании ZFSBootMenu
-3. **Не используйте одновременно zram-tools и systemd-zram-generator** — выбирайте один (рекомендуется systemd)
-4. **Резервная копия EFI** — всегда создавайте резервную копию VMLINUZ.EFI перед обновлением
+1. **ZFS is not included in Debian Installer** due to licensing restrictions — installation is done manually via debootstrap
+2. **ZFSBootMenu replaces GRUB** — do not install GRUB when using ZFSBootMenu
+3. **Do not use zram-tools and systemd-zram-generator simultaneously** — choose one (systemd is recommended)
+4. **EFI backup** — always backup VMLINUZ.EFI before updates
 
-## 📚 Документация
+## 📚 Documentation
 
-- [Архитектура и структура датасетов](docs/ARCHITECTURE.md)
-- [Руководство по тестированию](docs/TESTING.md)
-- [Источники и документация](docs/SOURCES.md)
+- [Architecture and Dataset Structure](docs/ARCHITECTURE.md)
+- [Testing Guide](docs/TESTING.md)
+- [Sources and Documentation](docs/SOURCES.md)
 
-## 🔗 Источники
+## 🔗 Sources
 
-- [Официальная документация OpenZFS — Debian Bookworm](https://openzfs.github.io/openzfs-docs/Getting%20Started/Debian/index.html)
+- [Official OpenZFS Documentation — Debian Bookworm](https://openzfs.github.io/openzfs-docs/Getting%20Started/Debian/index.html)
 - [ZFSBootMenu Documentation](https://docs.zfsbootmenu.org/)
 - [Debian Wiki — ZFS](https://wiki.debian.org/ZFS)
 - [Debian Wiki — ZRAM](https://wiki.debian.org/ZRam)
 
-## 📄 Лицензия
+## 📄 License
 
-MIT License — используйте на свой страх и риск. ZFS имеет лицензию CDDL, которая может быть несовместима с GPL.
+MIT License — use at your own risk. ZFS has CDDL license which may be incompatible with GPL.

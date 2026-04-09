@@ -1,33 +1,33 @@
 #!/bin/bash
 ###############################################################################
-# zram-config.sh — Настройка ZRAM сжатой подкачки
+# zram-config.sh — ZRAM compressed swap configuration
 #
-# Использование:
+# Usage:
 #   sudo bash zram-config.sh [OPTIONS]
 #
-# Опции:
-#   --size SIZE         Размер ZRAM в MB или % RAM (по умолчанию: min(ram*0.6, 4096))
-#   --algorithm ALG     Алгоритм сжатия (по умолчанию: zstd)
-#   --swap              Использовать как swap (по умолчанию)
-#   --filesystem FS     Использовать как файловую систему (ext4)
-#   --remove            Удалить конфигурацию ZRAM
-#   --status            Показать статус ZRAM
-#   --help              Показать справку
+# Options:
+#   --size SIZE         ZRAM size in MB or % RAM (default: min(ram*0.6, 4096))
+#   --algorithm ALG     Compression algorithm (default: zstd)
+#   --swap              Use as swap (default)
+#   --filesystem FS     Use as filesystem (ext4)
+#   --remove            Remove ZRAM configuration
+#   --status            Show ZRAM status
+#   --help              Show help
 #
-# Примеры:
-#   # Настройка по умолчанию (60% RAM, zstd, swap)
+# Examples:
+#   # Default configuration (60% RAM, zstd, swap)
 #   sudo bash zram-config.sh
 #
-#   # 8GB ZRAM с lz4
+#   # 8GB ZRAM with lz4
 #   sudo bash zram-config.sh --size 8192 --algorithm lz4
 #
-#   # Проверить статус
+#   # Check status
 #   sudo bash zram-config.sh --status
 ###############################################################################
 
 set -euo pipefail
 
-# Цвета
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -39,14 +39,14 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step() { echo -e "\n${BLUE}[STEP]${NC} $1"; }
 
-# Параметры
+# Parameters
 ZRAM_SIZE="min(ram * 0.6, 4096)"
 ALGORITHM="zstd"
 MODE="swap"
 REMOVE_MODE=false
 STATUS_MODE=false
 
-# Парсинг аргументов
+# Argument parsing
 while [[ $# -gt 0 ]]; do
     case $1 in
         --size) ZRAM_SIZE="$2"; shift 2 ;;
@@ -59,134 +59,134 @@ while [[ $# -gt 0 ]]; do
             head -n 30 "$0" | tail -n +2 | sed 's/^# \?//'
             exit 0
             ;;
-        *) log_error "Неизвестный параметр: $1"; exit 1 ;;
+        *) log_error "Unknown parameter: $1"; exit 1 ;;
     esac
 done
 
-# Проверка root
+# Check root
 if [ "$(id -u)" -ne 0 ]; then
-    log_error "Запустите скрипт от имени root (sudo)"
+    log_error "Run this script as root (sudo)"
     exit 1
 fi
 
 ###############################################################################
-# Режим статуса
+# Status mode
 ###############################################################################
 
 show_status() {
-    log_step "Статус ZRAM"
-    
+    log_step "ZRAM Status"
+
     echo ""
-    log_info "ZRAM устройства:"
+    log_info "ZRAM devices:"
     if command -v zramctl &>/dev/null; then
-        zramctl 2>/dev/null || log_warn "ZRAM устройства не активны"
+        zramctl 2>/dev/null || log_warn "ZRAM devices not active"
     else
-        log_warn "zramctl не установлен"
-        log_info "Установите: apt install zram-tools"
+        log_warn "zramctl not installed"
+        log_info "Install with: apt install zram-tools"
     fi
-    
+
     echo ""
-    log_info "Swap устройства:"
+    log_info "Swap devices:"
     if command -v swapon &>/dev/null; then
-        swapon --show 2>/dev/null || log_warn "Swap не активен"
+        swapon --show 2>/dev/null || log_warn "Swap not active"
     else
-        log_warn "swapon не найден"
+        log_warn "swapon not found"
     fi
-    
+
     echo ""
-    log_info "Служба ZRAM:"
+    log_info "ZRAM service:"
     if systemctl is-active dev-zram0.swap &>/dev/null; then
-        log_info "dev-zram0.swap: активен ✓"
+        log_info "dev-zram0.swap: active ✓"
     else
-        log_warn "dev-zram0.swap: не активен"
+        log_warn "dev-zram0.swap: not active"
     fi
-    
+
     echo ""
-    log_info "Конфигурация:"
+    log_info "Configuration:"
     if [ -f /etc/systemd/zram-generator.conf ]; then
-        log_info "Файл: /etc/systemd/zram-generator.conf"
+        log_info "File: /etc/systemd/zram-generator.conf"
         cat /etc/systemd/zram-generator.conf
     else
-        log_warn "Конфигурация не найдена"
+        log_warn "Configuration not found"
     fi
-    
+
     echo ""
-    log_info "Память:"
+    log_info "Memory:"
     free -h
-    
+
     exit 0
 }
 
 ###############################################################################
-# Режим удаления
+# Removal mode
 ###############################################################################
 
 remove_config() {
-    log_step "Удаление конфигурации ZRAM"
-    
-    # Отключение swap
+    log_step "Removing ZRAM configuration"
+
+    # Disable swap
     if [ -e /dev/zram0 ]; then
-        log_info "Отключение ZRAM swap..."
+        log_info "Disabling ZRAM swap..."
         swapoff /dev/zram0 2>/dev/null || true
     fi
-    
-    # Остановка службы
-    log_info "Остановка служб..."
+
+    # Stop service
+    log_info "Stopping services..."
     systemctl stop dev-zram0.swap 2>/dev/null || true
-    
-    # Удаление конфигурации
+
+    # Remove configuration
     if [ -f /etc/systemd/zram-generator.conf ]; then
-        log_info "Удаление /etc/systemd/zram-generator.conf..."
+        log_info "Removing /etc/systemd/zram-generator.conf..."
         rm /etc/systemd/zram-generator.conf
     fi
-    
-    # Перезагрузка systemd
-    log_info "Перезагрузка systemd..."
+
+    # Reload systemd
+    log_info "Reloading systemd..."
     systemctl daemon-reload
-    
-    log_info "ZRAM удален"
+
+    log_info "ZRAM removed"
     exit 0
 }
 
 ###############################################################################
-# Установка ZRAM
+# ZRAM installation
 ###############################################################################
 
 install_packages() {
-    log_step "Установка пакетов"
-    
+    log_step "Installing packages"
+
     if ! command -v systemd-zram-setup &>/dev/null && [ ! -f /usr/lib/systemd/system-generators/zram-generator ]; then
-        log_info "Установка systemd-zram-generator..."
+        log_info "Installing systemd-zram-generator..."
         apt update
         apt install -y systemd-zram-generator
     else
-        log_info "systemd-zram-generator уже установлен"
+        log_info "systemd-zram-generator already installed"
     fi
 }
 
 create_config() {
-    log_step "Создание конфигурации ZRAM"
-    
+    log_step "Creating ZRAM configuration"
+
     local CONFIG_FILE="/etc/systemd/zram-generator.conf"
-    
-    # Проверка существующей конфигурации
+
+    # Check existing configuration
     if [ -f "$CONFIG_FILE" ]; then
-        log_warn "Конфигурация уже существует:"
+        log_warn "Configuration already exists:"
         cat "$CONFIG_FILE"
         echo ""
-        read -p "Перезаписать? (да/нет): " confirm
-        if [ "$confirm" != "да" ]; then
-            log_info "Отменено"
+        read -p "Overwrite? (yes/no): " confirm
+        if [ "$confirm" != "yes" ]; then
+            log_info "Cancelled"
             exit 0
         fi
     fi
-    
-    log_info "Создание $CONFIG_FILE..."
-    
+
+    log_info "Creating $CONFIG_FILE..."
+
     if [ "$MODE" = "swap" ]; then
         cat > "$CONFIG_FILE" << EOF
 [zram0]
-# Размер: $ZRAM_SIZE
+# Size: $ZRAM_SIZE
 zram-size = $ZRAM_SIZE
 compression-algorithm = $ALGORITHM
 fs-type = swap
@@ -195,110 +195,110 @@ EOF
     else
         cat > "$CONFIG_FILE" << EOF
 [zram0]
-# Размер: $ZRAM_SIZE (файловая система)
+# Size: $ZRAM_SIZE (filesystem)
 zram-size = $ZRAM_SIZE
 compression-algorithm = $ALGORITHM
 fs-type = ext4
 mount-point = /var/compressed
 EOF
     fi
-    
-    log_info "Конфигурация создана:"
+
+    log_info "Configuration created:"
     cat "$CONFIG_FILE"
 }
 
 activate_zram() {
-    log_step "Активация ZRAM"
-    
-    # Перезагрузка systemd
-    log_info "Перезагрузка systemd daemon..."
+    log_step "Activating ZRAM"
+
+    # Reload systemd
+    log_info "Reloading systemd daemon..."
     systemctl daemon-reload
-    
-    # Запуск ZRAM
+
+    # Start ZRAM
     if [ "$MODE" = "swap" ]; then
-        log_info "Запуск ZRAM swap..."
+        log_info "Starting ZRAM swap..."
         systemctl start dev-zram0.swap
-        
-        # Проверка
+
+        # Check
         sleep 2
         if systemctl is-active dev-zram0.swap &>/dev/null; then
-            log_info "ZRAM swap активен ✓"
+            log_info "ZRAM swap active ✓"
         else
-            log_error "Не удалось активировать ZRAM swap"
-            log_info "Проверьте логи: journalctl -xeu dev-zram0.swap"
+            log_error "Failed to activate ZRAM swap"
+            log_info "Check logs: journalctl -xeu dev-zram0.swap"
             exit 1
         fi
     else
-        log_info "Для режима файловой системы создайте точку монтирования:"
+        log_info "For filesystem mode, create mount point:"
         log_info "  mkdir -p /var/compressed"
         log_info "  systemctl start var-compressed.mount"
     fi
 }
 
 verify_zram() {
-    log_step "Проверка ZRAM"
-    
+    log_step "Verifying ZRAM"
+
     echo ""
-    log_info "ZRAM устройства:"
+    log_info "ZRAM devices:"
     zramctl
-    
+
     echo ""
     log_info "Swap:"
     swapon --show
-    
+
     echo ""
-    log_info "Использование памяти:"
+    log_info "Memory usage:"
     free -h
-    
+
     echo ""
-    log_info "Служба:"
+    log_info "Service:"
     systemctl status dev-zram0.swap --no-pager -l || true
 }
 
 ###############################################################################
-# Основной процесс
+# Main process
 ###############################################################################
 
 main() {
     log_info "═══════════════════════════════════════════════════════"
     log_info "ZRAM Configuration Script"
-    log_info "Версия: 1.0 (Апрель 2026)"
+    log_info "Version: 1.0 (April 2026)"
     log_info "═══════════════════════════════════════════════════════"
-    
-    # Режим статуса
+
+    # Status mode
     if [ "$STATUS_MODE" = true ]; then
         show_status
     fi
-    
-    # Режим удаления
+
+    # Removal mode
     if [ "$REMOVE_MODE" = true ]; then
         remove_config
     fi
-    
-    # Основная установка
+
+    # Main installation
     install_packages
     create_config
     activate_zram
     verify_zram
-    
+
     log_info ""
     log_warn "═══════════════════════════════════════════════════════"
-    log_warn "ZRAM НАСТРОЕН УСПЕШНО!"
+    log_warn "ZRAM CONFIGURED SUCCESSFULLY!"
     log_warn "═══════════════════════════════════════════════════════"
     log_info ""
-    log_info "Конфигурация:"
-    log_info "  Размер: $ZRAM_SIZE"
-    log_info "  Алгоритм: $ALGORITHM"
-    log_info "  Режим: $MODE"
+    log_info "Configuration:"
+    log_info "  Size: $ZRAM_SIZE"
+    log_info "  Algorithm: $ALGORITHM"
+    log_info "  Mode: $MODE"
     log_info ""
-    log_info "Файл конфигурации:"
+    log_info "Configuration file:"
     log_info "  /etc/systemd/zram-generator.conf"
     log_info ""
-    log_info "Полезные команды:"
-    log_info "  zramctl                 # Информация о ZRAM"
-    log_info "  swapon --show           # Swap устройства"
-    log_info "  systemctl status dev-zram0.swap  # Статус службы"
-    log_info "  free -h                 # Использование памяти"
+    log_info "Useful commands:"
+    log_info "  zramctl                 # ZRAM information"
+    log_info "  swapon --show           # Swap devices"
+    log_info "  systemctl status dev-zram0.swap  # Service status"
+    log_info "  free -h                 # Memory usage"
     log_info ""
 }
 

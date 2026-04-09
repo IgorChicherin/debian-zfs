@@ -1,25 +1,25 @@
 #!/bin/bash
 ###############################################################################
-# zfsbootmenu-setup.sh — Настройка ZFSBootMenu на существующей системе
+# zfsbootmenu-setup.sh — ZFSBootMenu setup on existing system
 #
-# Использование:
+# Usage:
 #   sudo bash zfsbootmenu-setup.sh [OPTIONS]
 #
-# Опции:
-#   --pool NAME         Имя ZFS пула (по умолчанию: zroot)
-#   --dataset NAME      ROOT датасет (по умолчанию: ROOT/bookworm)
-#   --boot-device DEV   EFI раздел (по умолчанию: /dev/sda1)
-#   --boot-disk DEV     Диск с EFI (по умолчанию: /dev/sda)
-#   --boot-part NUM     Номер раздела EFI (по умолчанию: 1)
-#   --update            Обновить существующую установку
-#   --help              Показать справку
+# Options:
+#   --pool NAME         ZFS pool name (default: zroot)
+#   --dataset NAME      ROOT dataset (default: ROOT/bookworm)
+#   --boot-device DEV   EFI partition (default: /dev/sda1)
+#   --boot-disk DEV     Disk with EFI (default: /dev/sda)
+#   --boot-part NUM     EFI partition number (default: 1)
+#   --update            Update existing installation
+#   --help              Show help
 #
-# Примечание: Запускайте ИЗ live-среды или установленной системы
+# Note: Run from live environment or installed system
 ###############################################################################
 
 set -euo pipefail
 
-# Цвета
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -31,7 +31,7 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step() { echo -e "\n${BLUE}[STEP]${NC} $1"; }
 
-# Параметры
+# Parameters
 POOL_NAME="zroot"
 ROOT_DATASET="ROOT/bookworm"
 BOOT_DEVICE="/dev/sda1"
@@ -39,7 +39,7 @@ BOOT_DISK="/dev/sda"
 BOOT_PART="1"
 UPDATE_MODE=false
 
-# Парсинг аргументов
+# Argument parsing
 while [[ $# -gt 0 ]]; do
     case $1 in
         --pool) POOL_NAME="$2"; shift 2 ;;
@@ -52,199 +52,199 @@ while [[ $# -gt 0 ]]; do
             head -n 25 "$0" | tail -n +2 | sed 's/^# \?//'
             exit 0
             ;;
-        *) log_error "Неизвестный параметр: $1"; exit 1 ;;
+        *) log_error "Unknown parameter: $1"; exit 1 ;;
     esac
 done
 
-# Проверка root
+# Check root
 if [ "$(id -u)" -ne 0 ]; then
-    log_error "Запустите скрипт от имени root (sudo)"
+    log_error "Run this script as root (sudo)"
     exit 1
 fi
 
 ###############################################################################
-# Проверки
+# Checks
 ###############################################################################
 
 check_prerequisites() {
-    log_step "Проверка предварительных условий"
-    
-    # Проверка пула
+    log_step "Checking prerequisites"
+
+    # Check pool
     if ! zpool list "$POOL_NAME" &>/dev/null; then
-        log_error "Пул $POOL_NAME не найден!"
-        log_info "Доступные пулы:"
+        log_error "Pool $POOL_NAME not found!"
+        log_info "Available pools:"
         zpool list
         exit 1
     fi
-    
-    # Проверка датасета
+
+    # Check dataset
     if ! zfs list "$POOL_NAME/$ROOT_DATASET" &>/dev/null; then
-        log_error "Датасет $POOL_NAME/$ROOT_DATASET не найден!"
-        log_info "Доступные датасеты:"
+        log_error "Dataset $POOL_NAME/$ROOT_DATASET not found!"
+        log_info "Available datasets:"
         zfs list
         exit 1
     fi
-    
-    # Проверка boot устройства
+
+    # Check boot device
     if [ ! -b "$BOOT_DEVICE" ]; then
-        log_warn "Устройство $BOOT_DEVICE не найдено"
-        log_info "Укажите правильное устройство через --boot-device"
-        log_info "Текущие разделы:"
+        log_warn "Device $BOOT_DEVICE not found"
+        log_info "Specify correct device via --boot-device"
+        log_info "Current partitions:"
         lsblk -ln -o NAME,SIZE,TYPE,MOUNTPOINT | grep -v loop
-        read -p "Продолжить с указанным устройством? (да/нет): " confirm
-        if [ "$confirm" != "да" ]; then
+        read -p "Continue with specified device? (yes/no): " confirm
+        if [ "$confirm" != "yes" ]; then
             exit 1
         fi
     fi
-    
-    log_info "Пул: $POOL_NAME ✓"
-    log_info "Датасет: $POOL_NAME/$ROOT_DATASET ✓"
-    log_info "EFI устройство: $BOOT_DEVICE"
+
+    log_info "Pool: $POOL_NAME ✓"
+    log_info "Dataset: $POOL_NAME/$ROOT_DATASET ✓"
+    log_info "EFI device: $BOOT_DEVICE"
 }
 
 ###############################################################################
-# Настройка ZFSBootMenu
+# ZFSBootMenu setup
 ###############################################################################
 
 set_dataset_properties() {
-    log_step "Настройка свойств датасетов"
-    
-    # Установка commandline для ZFSBootMenu
-    log_info "Установка org.zfsbootmenu:commandline..."
+    log_step "Configuring dataset properties"
+
+    # Set commandline for ZFSBootMenu
+    log_info "Setting org.zfsbootmenu:commandline..."
     zfs set org.zfsbootmenu:commandline="quiet loglevel=0" \
         "$POOL_NAME/$ROOT_DATASET"
-    
-    # Проверка шифрования
+
+    # Check encryption
     local encryption
     encryption=$(zfs get -H -o value encryption "$POOL_NAME/$ROOT_DATASET" 2>/dev/null || echo "off")
-    
+
     if [ "$encryption" != "off" ]; then
-        log_info "Обнаружено шифрование, настройка keysource..."
+        log_info "Encryption detected, configuring keysource..."
         zfs set org.zfsbootmenu:keysource="$POOL_NAME/$ROOT_DATASET" \
             "$POOL_NAME"
     fi
-    
-    log_info "Свойства установлены"
+
+    log_info "Properties set"
     zfs get org.zfsbootmenu:commandline "$POOL_NAME/$ROOT_DATASET"
 }
 
 mount_efi() {
-    log_step "Монтирование EFI System Partition"
-    
-    # Проверка монтирования
+    log_step "Mounting EFI System Partition"
+
+    # Check if already mounted
     if mount | grep -q "/boot/efi"; then
-        log_info "EFI уже смонтирован в /boot/efi"
+        log_info "EFI already mounted at /boot/efi"
         return 0
     fi
-    
-    # Создание fstab записи если не существует
+
+    # Add fstab entry if not exists
     if ! grep -q "/boot/efi" /etc/fstab; then
-        log_info "Добавление записи в /etc/fstab..."
+        log_info "Adding entry to /etc/fstab..."
         local BOOT_UUID
         BOOT_UUID=$(blkid -s UUID -o value "$BOOT_DEVICE" 2>/dev/null || echo "")
-        
+
         if [ -n "$BOOT_UUID" ]; then
             echo "UUID=${BOOT_UUID}  /boot/efi  vfat  defaults  0  0" >> /etc/fstab
         else
             echo "${BOOT_DEVICE}  /boot/efi  vfat  defaults  0  0" >> /etc/fstab
         fi
     fi
-    
-    # Монтирование
-    log_info "Монтирование /boot/efi..."
+
+    # Mount
+    log_info "Mounting /boot/efi..."
     mkdir -p /boot/efi
     mount /boot/efi
-    
-    log_info "EFI смонтирован"
+
+    log_info "EFI mounted"
 }
 
 download_zfsbootmenu() {
-    log_step "Установка ZFSBootMenu"
-    
+    log_step "Installing ZFSBootMenu"
+
     local ZBM_DIR="/boot/efi/EFI/ZBM"
-    
-    # Создание директории
+
+    # Create directory
     mkdir -p "$ZBM_DIR"
-    
+
     if [ "$UPDATE_MODE" = true ] && [ -f "$ZBM_DIR/VMLINUZ.EFI" ]; then
-        log_info "Режим обновления — создаю резервную копию..."
+        log_info "Update mode — creating backup..."
         cp "$ZBM_DIR/VMLINUZ.EFI" "$ZBM_DIR/VMLINUZ-OLD.EFI"
     fi
-    
-    # Скачивание EFI бинаря
-    log_info "Скачивание ZFSBootMenu EFI..."
+
+    # Download EFI binary
+    log_info "Downloading ZFSBootMenu EFI..."
     curl -o "$ZBM_DIR/VMLINUZ.EFI" -L https://get.zfsbootmenu.org/efi
-    
-    # Создание резервной копии
-    log_info "Создание резервной копии..."
+
+    # Create backup
+    log_info "Creating backup..."
     cp "$ZBM_DIR/VMLINUZ.EFI" "$ZBM_DIR/VMLINUZ-BACKUP.EFI"
-    
-    # Проверка
+
+    # Check
     local size
     size=$(stat -f%z "$ZBM_DIR/VMLINUZ.EFI" 2>/dev/null || stat -c%s "$ZBM_DIR/VMLINUZ.EFI")
-    log_info "Размер VMLINUZ.EFI: $size байт"
-    
-    # Проверка версии
+    log_info "VMLINUZ.EFI size: $size bytes"
+
+    # Verify version
     if strings "$ZBM_DIR/VMLINUZ.EFI" | grep -q -i zfsbootmenu; then
-        log_info "ZFSBootMenu EFI проверен ✓"
+        log_info "ZFSBootMenu EFI verified ✓"
     else
-        log_warn "Не удалось проверить EFI файл — возможно поврежден"
+        log_warn "Could not verify EFI file — may be corrupted"
     fi
 }
 
 create_efi_entries() {
-    log_step "Создание EFI boot записей"
-    
-    # Проверка efivarfs
+    log_step "Creating EFI boot entries"
+
+    # Check efivarfs
     if ! mount | grep -q efivarfs; then
-        log_info "Монтирование efivarfs..."
+        log_info "Mounting efivarfs..."
         mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null || true
     fi
-    
-    # Удаление старых записей (если обновление)
+
+    # Remove old entries (if updating)
     if [ "$UPDATE_MODE" = true ]; then
-        log_info "Удаление старых записей ZFSBootMenu..."
+        log_info "Removing old ZFSBootMenu entries..."
         efibootmgr | grep "ZFSBootMenu" | awk '{print $1}' | sed 's/Boot//;s/\*//' | while read num; do
             efibootmgr -B -b "$num" 2>/dev/null || true
         done
     fi
-    
-    # Создание резервной записи
-    log_info "Создание записи ZFSBootMenu (Backup)..."
+
+    # Create backup entry
+    log_info "Creating ZFSBootMenu (Backup) entry..."
     efibootmgr -c -d "$BOOT_DISK" -p "$BOOT_PART" \
         -L "ZFSBootMenu (Backup)" \
         -l '\EFI\ZBM\VMLINUZ-BACKUP.EFI'
-    
-    # Создание основной записи
-    log_info "Создание записи ZFSBootMenu..."
+
+    # Create main entry
+    log_info "Creating ZFSBootMenu entry..."
     efibootmgr -c -d "$BOOT_DISK" -p "$BOOT_PART" \
         -L "ZFSBootMenu" \
         -l '\EFI\ZBM\VMLINUZ.EFI'
-    
-    # Установка порядка загрузки
-    log_info "Настройка порядка загрузки..."
+
+    # Set boot order
+    log_info "Configuring boot order..."
     local current_boot
     current_boot=$(efibootmgr | grep "BootCurrent:" | awk '{print $2}')
-    
-    log_info "Текущий BootCurrent: $current_boot"
-    
-    # Показать все записи
-    log_info "EFI boot записи:"
+
+    log_info "Current BootCurrent: $current_boot"
+
+    # Show all entries
+    log_info "EFI boot entries:"
     efibootmgr -v
 }
 
 install_from_source() {
-    log_step "Установка ZFSBootMenu из исходников (опционально)"
-    
-    log_warn "Этот метод требует дополнительных зависимостей"
-    read -p "Продолжить установку из исходников? (да/нет): " confirm
-    if [ "$confirm" != "да" ]; then
-        log_info "Пропуск — используется prebuilt EFI"
+    log_step "Installing ZFSBootMenu from source (optional)"
+
+    log_warn "This method requires additional dependencies"
+    read -p "Continue with source installation? (yes/no): " confirm
+    if [ "$confirm" != "yes" ]; then
+        log_info "Skipping — using prebuilt EFI"
         return 0
     fi
-    
-    # Установка зависимостей
-    log_info "Установка зависимостей..."
+
+    # Install dependencies
+    log_info "Installing dependencies..."
     apt install -y \
         libsort-versions-perl \
         libboolean-perl \
@@ -258,41 +258,41 @@ install_from_source() {
         efibootmgr \
         systemd-boot-efi \
         bsdextrautils
-    
-    # Скачивание исходников
-    log_info "Скачивание ZFSBootMenu..."
+
+    # Download source
+    log_info "Downloading ZFSBootMenu..."
     mkdir -p /usr/local/src/zfsbootmenu
     cd /usr/local/src/zfsbootmenu
     curl -L https://get.zfsbootmenu.org/source | tar -zxv --strip-components=1 -f -
-    
-    # Сборка
-    log_info "Сборка ZFSBootMenu..."
+
+    # Build
+    log_info "Building ZFSBootMenu..."
     make core dracut
-    
-    # Генерация образа
-    log_info "Генерация ZFSBootMenu образа..."
+
+    # Generate image
+    log_info "Generating ZFSBootMenu image..."
     generate-zbm
-    
-    log_info "Установка из исходников завершена"
+
+    log_info "Source installation completed"
 }
 
 configure_zfsbootmenu() {
-    log_step "Создание конфигурации ZFSBootMenu"
-    
+    log_step "Creating ZFSBootMenu configuration"
+
     local CONFIG_DIR="/etc/zfsbootmenu"
     local CONFIG_FILE="$CONFIG_DIR/config.yaml"
-    
+
     if [ -f "$CONFIG_FILE" ] && [ "$UPDATE_MODE" = false ]; then
-        log_warn "Конфигурация уже существует"
-        read -p "Перезаписать? (да/нет): " confirm
-        if [ "$confirm" != "да" ]; then
-            log_info "Пропуск"
+        log_warn "Configuration already exists"
+        read -p "Overwrite? (yes/no): " confirm
+        if [ "$confirm" != "yes" ]; then
+            log_info "Skipping"
             return 0
         fi
     fi
-    
+
     mkdir -p "$CONFIG_DIR"
-    
+
     cat > "$CONFIG_FILE" << 'EOF'
 # ZFSBootMenu Configuration
 # Generated by zfsbootmenu-setup.sh
@@ -304,7 +304,7 @@ Global:
   PreHooksDir: /etc/zfsbootmenu/generation.d
   PostHooksDir: /etc/zfsbootmenu/post-generation.d
   Resolution: 1920x1080
- splash: true
+  splash: true
 
 Components:
   Enabled: false
@@ -319,42 +319,42 @@ Kernel:
   CommandLine: quiet loglevel=0
   AllowUnspecified: true
 EOF
-    
-    log_info "Конфигурация создана: $CONFIG_FILE"
-    
-    # Создание директорий для hooks
+
+    log_info "Configuration created: $CONFIG_FILE"
+
+    # Create hook directories
     mkdir -p /etc/zfsbootmenu/generation.d
     mkdir -p /etc/zfsbootmenu/post-generation.d
-    
-    log_info "Директории для hooks созданы"
+
+    log_info "Hook directories created"
 }
 
 generate_image() {
-    log_step "Генерация ZFSBootMenu образа"
-    
-    # Проверка generate-zbm
+    log_step "Generating ZFSBootMenu image"
+
+    # Check generate-zbm
     if ! command -v generate-zbm &>/dev/null; then
-        log_warn "generate-zbm не найден"
-        log_info "Образ уже готов (prebuilt EFI)"
+        log_warn "generate-zbm not found"
+        log_info "Image already ready (prebuilt EFI)"
         return 0
     fi
-    
-    log_info "Генерация..."
+
+    log_info "Generating..."
     generate-zbm
-    
-    log_info "Образ сгенерирован"
+
+    log_info "Image generated"
 }
 
 ###############################################################################
-# Основной процесс
+# Main process
 ###############################################################################
 
 main() {
     log_info "═══════════════════════════════════════════════════════"
     log_info "ZFSBootMenu Setup Script"
-    log_info "Версия: 1.0 (Апрель 2026)"
+    log_info "Version: 1.0 (April 2026)"
     log_info "═══════════════════════════════════════════════════════"
-    
+
     check_prerequisites
     set_dataset_properties
     mount_efi
@@ -362,26 +362,26 @@ main() {
     configure_zfsbootmenu
     create_efi_entries
     generate_image
-    
+
     log_info ""
     log_warn "═══════════════════════════════════════════════════════"
-    log_warn "ZFSBootMenu НАСТРОЕН УСПЕШНО!"
+    log_warn "ZFSBootMenu CONFIGURED SUCCESSFULLY!"
     log_warn "═══════════════════════════════════════════════════════"
     log_info ""
-    log_info "EFI файлы:"
+    log_info "EFI files:"
     log_info "  /boot/efi/EFI/ZBM/VMLINUZ.EFI"
     log_info "  /boot/efi/EFI/ZBM/VMLINUZ-BACKUP.EFI"
     log_info ""
-    log_info "EFI Boot записи созданы для:"
-    log_info "  Диск: $BOOT_DISK"
-    log_info "  Раздел: $BOOT_PART"
+    log_info "EFI Boot entries created for:"
+    log_info "  Disk: $BOOT_DISK"
+    log_info "  Partition: $BOOT_PART"
     log_info ""
-    log_info "Использование:"
-    log_info "  ESC при загрузке — меню ZFSBootMenu"
-    log_info "  Ctrl+K — выбор ядра/снапшота"
-    log_info "  Ctrl+D — установить по умолчанию"
+    log_info "Usage:"
+    log_info "  ESC during boot — ZFSBootMenu menu"
+    log_info "  Ctrl+K — select kernel/snapshot"
+    log_info "  Ctrl+D — set as default"
     log_info ""
-    log_info "Проверка:"
+    log_info "Verification:"
     log_info "  efibootmgr -v"
     log_info "  strings /boot/efi/EFI/ZBM/VMLINUZ.EFI | grep -i zfsbootmenu"
     log_info ""

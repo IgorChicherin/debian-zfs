@@ -1,41 +1,41 @@
 #!/bin/bash
 ###############################################################################
-# zfs-install.sh — Автоматическая установка Debian Bookworm на ZFS root
+# zfs-install.sh — Automated Debian Bookworm installation on ZFS root
 #
-# Использование:
+# Usage:
 #   sudo bash zfs-install.sh --disk /dev/sda [OPTIONS]
 #
-# Опции:
-#   --disk DISK         Диск для установки (обязательно)
-#   --encrypt           Включить ZFS native encryption
-#   --passphrase PHRASE Passphrase для шифрования (если не указан, будет запрошен)
-#   --hostname NAME     Имя хоста (по умолчанию: debian-zfs)
-#   --password PASS     Пароль root (по умолчанию: root, СМЕНИТЕ после установки!)
-#   --pool-name NAME    Имя ZFS пула (по умолчанию: zroot)
-#   --dry-run           Показать команды без выполнения
-#   --help              Показать эту справку
+# Options:
+#   --disk DISK         Installation disk (required)
+#   --encrypt           Enable ZFS native encryption
+#   --passphrase PHRASE Encryption passphrase (if not specified, will prompt)
+#   --hostname NAME     Hostname (default: debian-zfs)
+#   --password PASS     Root password (default: root, CHANGE after installation!)
+#   --pool-name NAME    ZFS pool name (default: zroot)
+#   --dry-run           Show commands without executing
+#   --help              Show this help
 #
-# Примеры:
-#   # Без шифрования
+# Examples:
+#   # Without encryption
 #   sudo bash zfs-install.sh --disk /dev/sda
 #
-#   # С шифрованием
+#   # With encryption
 #   sudo bash zfs-install.sh --disk /dev/sda --encrypt --passphrase "MySecurePass"
 #
-#   # Кастомный hostname
+#   # Custom hostname
 #   sudo bash zfs-install.sh --disk /dev/nvme0n1 --hostname nas-server
 ###############################################################################
 
 set -euo pipefail
 
-# Цвета для вывода
+# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Логирование
+# Logging
 log_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
 }
@@ -52,7 +52,7 @@ log_step() {
     echo -e "\n${BLUE}[STEP]${NC} $1"
 }
 
-# Параметры по умолчанию
+# Default parameters
 DISK=""
 ENCRYPT=false
 PASSPHRASE=""
@@ -64,13 +64,13 @@ BOOT_PART=1
 POOL_PART=2
 BOOT_SIZE="+512M"
 
-# Функция показа справки
+# Help function
 show_help() {
     head -n 35 "$0" | tail -n +2 | sed 's/^# \?//'
     exit 0
 }
 
-# Парсинг аргументов
+# Argument parsing
 while [[ $# -gt 0 ]]; do
     case $1 in
         --disk)
@@ -105,66 +105,66 @@ while [[ $# -gt 0 ]]; do
             show_help
             ;;
         *)
-            log_error "Неизвестный параметр: $1"
+            log_error "Unknown parameter: $1"
             show_help
             ;;
     esac
 done
 
-# Проверка обязательных параметров
+# Check required parameters
 if [ -z "$DISK" ]; then
-    log_error "Параметр --disk обязателен!"
+    log_error "Parameter --disk is required!"
     show_help
 fi
 
-# Проверка root прав
+# Check root privileges
 if [ "$(id -u)" -ne 0 ]; then
-    log_error "Запустите скрипт от имени root (sudo)"
+    log_error "Run this script as root (sudo)"
     exit 1
 fi
 
-# Проверка что диск существует
+# Check if disk exists
 if [ ! -b "$DISK" ]; then
-    log_error "Диск $DISK не найден!"
-    log_info "Доступные диски:"
+    log_error "Disk $DISK not found!"
+    log_info "Available disks:"
     lsblk -dn -o NAME,SIZE,TYPE,MOUNTPOINT 2>/dev/null || fdisk -l 2>/dev/null | grep "Disk /dev"
     exit 1
 fi
 
-# Предупреждение о потере данных
-log_warn "ВНИМАНИЕ: Все данные на диске $DISK будут УНИЧТОЖЕНЫ!"
-log_warn "Диск: $(lsblk -dn -o NAME,SIZE "$DISK")"
+# Data loss warning
+log_warn "WARNING: All data on disk $DISK will be DESTROYED!"
+log_warn "Disk: $(lsblk -dn -o NAME,SIZE "$DISK")"
 
 if [ "$DRY_RUN" = false ]; then
-    read -p "Продолжить? (да/нет): " confirm
-    if [ "$confirm" != "да" ]; then
-        log_info "Отменено пользователем"
+    read -p "Continue? (yes/no): " confirm
+    if [ "$confirm" != "yes" ]; then
+        log_info "Cancelled by user"
         exit 0
     fi
 fi
 
-# Переменные
+# Variables
 BOOT_DEVICE="${DISK}${BOOT_PART}"
 POOL_DEVICE="${DISK}${POOL_PART}"
 MOUNT_POINT="/mnt"
 DEBIAN_RELEASE="bookworm"
 
-# Для NVMe дисков корректируем имена
+# For NVMe drives adjust names
 if [[ "$DISK" == *nvme* ]]; then
     BOOT_DEVICE="${DISK}p${BOOT_PART}"
     POOL_DEVICE="${DISK}p${POOL_PART}"
 fi
 
-log_info "Конфигурация:"
-log_info "  Диск: $DISK"
-log_info "  EFI раздел: $BOOT_DEVICE"
-log_info "  ZFS раздел: $POOL_DEVICE"
-log_info "  Пул: $POOL_NAME"
-log_info "  Шифрование: $ENCRYPT"
+log_info "Configuration:"
+log_info "  Disk: $DISK"
+log_info "  EFI partition: $BOOT_DEVICE"
+log_info "  ZFS partition: $POOL_DEVICE"
+log_info "  Pool: $POOL_NAME"
+log_info "  Encryption: $ENCRYPT"
 log_info "  Hostname: $HOSTNAME"
 
 ###############################################################################
-# Функции
+# Functions
 ###############################################################################
 
 run_cmd() {
@@ -176,8 +176,8 @@ run_cmd() {
 }
 
 install_packages() {
-    log_step "Установка необходимых пакетов"
-    
+    log_step "Installing required packages"
+
     run_cmd apt update
     run_cmd apt install -y \
         debootstrap \
@@ -191,31 +191,31 @@ install_packages() {
 }
 
 prepare_disk() {
-    log_step "Подготовка диска $DISK"
-    
-    # Очистка старых разделов
-    log_info "Очистка диска..."
+    log_step "Preparing disk $DISK"
+
+    # Clear old partitions
+    log_info "Clearing disk..."
     run_cmd zpool labelclear -f "$DISK" 2>/dev/null || true
     run_cmd wipefs -a "$DISK"
     run_cmd sgdisk --zap-all "$DISK"
-    
-    # Создание разделов
-    log_info "Создание EFI раздела (${BOOT_SIZE})..."
+
+    # Create partitions
+    log_info "Creating EFI partition (${BOOT_SIZE})..."
     run_cmd sgdisk -n "${BOOT_PART}:1m:${BOOT_SIZE}" -t "${BOOT_PART}:ef00" "$DISK"
-    
-    log_info "Создание ZFS раздела (всё остальное пространство)..."
+
+    log_info "Creating ZFS partition (remaining space)..."
     run_cmd sgdisk -n "${POOL_PART}:0:-10m" -t "${POOL_PART}:bf00" "$DISK"
-    
-    # Обновление таблицы разделов
+
+    # Update partition table
     run_cmd partprobe "$DISK" 2>/dev/null || true
-    
-    log_info "Разделы созданы:"
+
+    log_info "Partitions created:"
     run_cmd sgdisk -p "$DISK"
 }
 
 create_zfs_pool() {
-    log_step "Создание ZFS пула $POOL_NAME"
-    
+    log_step "Creating ZFS pool $POOL_NAME"
+
     local common_opts=(
         -f
         -o ashift=12
@@ -227,149 +227,149 @@ create_zfs_pool() {
         -o compatibility=openzfs-2.2-linux
         -m none
     )
-    
+
     if [ "$ENCRYPT" = true ]; then
         if [ -z "$PASSPHRASE" ]; then
-            log_warn "Passphrase не указан, будет запрошен интерактивно"
-            read -s -p "Введите passphrase для шифрования ZFS: " PASSPHRASE
+            log_warn "Passphrase not specified, will prompt interactively"
+            read -s -p "Enter ZFS encryption passphrase: " PASSPHRASE
             echo
         fi
-        
-        # Создание файла ключа
-        log_info "Создание файла ключа..."
+
+        # Create key file
+        log_info "Creating key file..."
         echo "$PASSPHRASE" > /etc/zfs/${POOL_NAME}.key
         run_cmd chmod 000 /etc/zfs/${POOL_NAME}.key
-        
-        log_info "Создание зашифрованного пула..."
+
+        log_info "Creating encrypted pool..."
         run_cmd zpool create "${common_opts[@]}" \
             -O encryption=aes-256-gcm \
             -O keylocation=file:///etc/zfs/${POOL_NAME}.key \
             -O keyformat=passphrase \
             "$POOL_NAME" "$POOL_DEVICE"
     else
-        log_info "Создание пула без шифрования..."
+        log_info "Creating unencrypted pool..."
         run_cmd zpool create "${common_opts[@]}" \
             "$POOL_NAME" "$POOL_DEVICE"
     fi
-    
-    log_info "Пул создан:"
+
+    log_info "Pool created:"
     run_cmd zpool status "$POOL_NAME"
 }
 
 create_datasets() {
-    log_step "Создание ZFS датасетов"
-    
-    # ROOT dataset (контейнер)
-    log_info "Создание zroot/ROOT..."
+    log_step "Creating ZFS datasets"
+
+    # ROOT dataset (container)
+    log_info "Creating zroot/ROOT..."
     run_cmd zfs create -o mountpoint=none ${POOL_NAME}/ROOT
-    
-    # Корневой датасет
-    log_info "Создание zroot/ROOT/${DEBIAN_RELEASE}..."
+
+    # Root dataset
+    log_info "Creating zroot/ROOT/${DEBIAN_RELEASE}..."
     run_cmd zfs create -o mountpoint=/ -o canmount=noauto \
         ${POOL_NAME}/ROOT/${DEBIAN_RELEASE}
-    
+
     # Home dataset
-    log_info "Создание zroot/home..."
+    log_info "Creating zroot/home..."
     run_cmd zfs create -o mountpoint=/home ${POOL_NAME}/home
-    
-    # Var-log dataset (опционально, для изоляции логов)
-    log_info "Создание zroot/var-log..."
+
+    # Var-log dataset (optional, for log isolation)
+    log_info "Creating zroot/var-log..."
     run_cmd zfs create -o mountpoint=/var/log ${POOL_NAME}/var-log
-    
-    # Установка bootfs
-    log_info "Установка bootfs..."
+
+    # Set bootfs
+    log_info "Setting bootfs..."
     run_cmd zpool set bootfs=${POOL_NAME}/ROOT/${DEBIAN_RELEASE} "$POOL_NAME"
-    
-    # Свойства для ZFSBootMenu
-    log_info "Настройка свойств для ZFSBootMenu..."
+
+    # Properties for ZFSBootMenu
+    log_info "Configuring ZFSBootMenu properties..."
     run_cmd zfs set org.zfsbootmenu:commandline="quiet loglevel=0" \
         ${POOL_NAME}/ROOT/${DEBIAN_RELEASE}
-    
+
     if [ "$ENCRYPT" = true ]; then
         run_cmd zfs set org.zfsbootmenu:keysource="${POOL_NAME}/ROOT/${DEBIAN_RELEASE}" \
             ${POOL_NAME}
     fi
-    
-    log_info "Датасеты созданы:"
+
+    log_info "Datasets created:"
     run_cmd zfs list
 }
 
 mount_datasets() {
-    log_step "Монтирование датасетов в $MOUNT_POINT"
-    
-    # Экспорт и импорт с новой точкой монтирования
-    log_info "Экспорт пула..."
+    log_step "Mounting datasets to $MOUNT_POINT"
+
+    # Export and import with new mount point
+    log_info "Exporting pool..."
     run_cmd zpool export "$POOL_NAME"
-    
-    log_info "Импорт пула с mountpoint=$MOUNT_POINT..."
+
+    log_info "Importing pool with mountpoint=$MOUNT_POINT..."
     run_cmd zpool import -N -R "$MOUNT_POINT" "$POOL_NAME"
-    
-    # Для шифрования нужно загрузить ключ
+
+    # For encryption need to load key
     if [ "$ENCRYPT" = true ]; then
-        log_info "Загрузка ключа шифрования..."
+        log_info "Loading encryption key..."
         run_cmd zfs load-key -L file:///etc/zfs/${POOL_NAME}.key ${POOL_NAME}/ROOT/${DEBIAN_RELEASE}
     fi
-    
-    # Монтирование датасетов
-    log_info "Монтирование ROOT..."
+
+    # Mount datasets
+    log_info "Mounting ROOT..."
     run_cmd zfs mount ${POOL_NAME}/ROOT/${DEBIAN_RELEASE}
-    
-    log_info "Монтирование home..."
+
+    log_info "Mounting home..."
     run_cmd zfs mount ${POOL_NAME}/home
-    
-    log_info "Монтирование var-log..."
+
+    log_info "Mounting var-log..."
     run_cmd zfs mount ${POOL_NAME}/var-log
-    
-    # Проверка
-    log_info "Смонтированные файловые системы:"
+
+    # Check
+    log_info "Mounted filesystems:"
     run_cmd mount | grep "$MOUNT_POINT"
 }
 
 install_debian() {
-    log_step "Установка Debian $DEBIAN_RELEASE через debootstrap"
-    
-    log_info "Запуск debootstrap (это может занять несколько минут)..."
+    log_step "Installing Debian $DEBIAN_RELEASE via debootstrap"
+
+    log_info "Running debootstrap (this may take several minutes)..."
     run_cmd debootstrap "$DEBIAN_RELEASE" "$MOUNT_POINT" \
         http://deb.debian.org/debian/
-    
-    log_info "Debian установлен в $MOUNT_POINT"
+
+    log_info "Debian installed to $MOUNT_POINT"
 }
 
 prepare_chroot() {
-    log_step "Подготовка chroot окружения"
-    
-    # Копирование hostid
-    log_info "Копирование ZFS hostid..."
+    log_step "Preparing chroot environment"
+
+    # Copy hostid
+    log_info "Copying ZFS hostid..."
     run_cmd cp /etc/hostid "$MOUNT_POINT/etc/hostid"
-    
-    # Копирование resolv.conf
-    log_info "Копирование DNS конфигурации..."
+
+    # Copy resolv.conf
+    log_info "Copying DNS configuration..."
     run_cmd cp /etc/resolv.conf "$MOUNT_POINT/etc/resolv.conf"
-    
-    # Копирование ключа шифрования
+
+    # Copy encryption key
     if [ "$ENCRYPT" = true ]; then
-        log_info "Копирование ключа шифрования..."
+        log_info "Copying encryption key..."
         run_cmd mkdir -p "$MOUNT_POINT/etc/zfs"
         run_cmd cp /etc/zfs/${POOL_NAME}.key "$MOUNT_POINT/etc/zfs/${POOL_NAME}.key"
         run_cmd chmod 000 "$MOUNT_POINT/etc/zfs/${POOL_NAME}.key"
     fi
-    
-    # Монтирование виртуальных ФС
-    log_info "Монтирование proc, sys, dev..."
+
+    # Mount virtual filesystems
+    log_info "Mounting proc, sys, dev..."
     run_cmd mount -t proc proc "$MOUNT_POINT/proc"
     run_cmd mount -t sysfs sys "$MOUNT_POINT/sys"
     run_cmd mount -B /dev "$MOUNT_POINT/dev"
     run_cmd mount -t devpts pts "$MOUNT_POINT/dev/pts"
-    
-    log_info "Chroot окружение готово"
+
+    log_info "Chroot environment ready"
 }
 
 configure_chroot() {
-    log_step "Настройка системы в chroot"
-    
-    # Создаем скрипт для выполнения в chroot
+    log_step "Configuring system in chroot"
+
+    # Create script for chroot execution
     local chroot_script="/tmp/chroot-setup.sh"
-    
+
     cat > "$chroot_script" << 'CHROOT_SCRIPT'
 #!/bin/bash
 set -e
@@ -381,11 +381,11 @@ ROOT_PASSWORD_VAR="__ROOT_PASSWORD__"
 ENCRYPT_VAR="__ENCRYPT__"
 POOL_NAME_VAR="__POOL_NAME__"
 
-# Настройка hostname
+# Configure hostname
 echo "$HOSTNAME_VAR" > /etc/hostname
 echo "127.0.1.1	$HOSTNAME_VAR" >> /etc/hosts
 
-# Настройка источников пакетов
+# Configure package sources
 cat > /etc/apt/sources.list << EOF
 deb http://deb.debian.org/debian/ ${DEBIAN_RELEASE} main non-free-firmware contrib
 deb-src http://deb.debian.org/debian/ ${DEBIAN_RELEASE} main non-free-firmware contrib
@@ -397,15 +397,15 @@ deb http://deb.debian.org/debian/ ${DEBIAN_RELEASE}-backports main non-free-firm
 deb-src http://deb.debian.org/debian/ ${DEBIAN_RELEASE}-backports main non-free-firmware contrib
 EOF
 
-# Обновление пакетов
+# Update packages
 apt update
 
-# Установка локали и часового пояса
+# Install locale and timezone
 apt install -y locales keyboard-configuration console-setup tzdata
 locale-gen en_US.UTF-8
 update-locale LANG=en_US.UTF-8
 
-# Установка ядра и ZFS
+# Install kernel and ZFS
 apt install -y \
     linux-headers-amd64 \
     linux-image-amd64 \
@@ -420,171 +420,171 @@ apt install -y \
     curl \
     systemd-zram-generator
 
-# Настройка DKMS для ZFS
+# Configure DKMS for ZFS
 echo "REMAKE_INITRD=yes" > /etc/dkms/zfs.conf
 
-# Включение служб ZFS
+# Enable ZFS services
 systemctl enable zfs.target
 systemctl enable zfs-import-cache
 systemctl enable zfs-mount
 systemctl enable zfs-import.target
 
-# Для шифрования
+# For encryption
 if [ "$ENCRYPT_VAR" = "true" ]; then
     echo "UMASK=0077" > /etc/initramfs-tools/conf.d/umask.conf
 fi
 
-# Пересборка initramfs
+# Rebuild initramfs
 update-initramfs -c -k all
 
-# Настройка ZRAM (будет выполнена отдельным скриптом)
-log_info "ZRAM настроен через systemd-zram-generator"
+# Configure ZRAM (will be done by separate script)
+log_info "ZRAM configured via systemd-zram-generator"
 
-# Установка пароля root
+# Set root password
 echo "root:$ROOT_PASSWORD_VAR" | chpasswd
 
-log_info "Chroot настройка завершена"
+log_info "Chroot configuration completed"
 CHROOT_SCRIPT
 
-    # Замена переменных
+    # Replace variables
     sed -i "s/__HOSTNAME__/$HOSTNAME/g" "$chroot_script"
     sed -i "s/__ROOT_PASSWORD__/$ROOT_PASSWORD/g" "$chroot_script"
     sed -i "s/__ENCRYPT__/$ENCRYPT/g" "$chroot_script"
     sed -i "s/__POOL_NAME__/$POOL_NAME/g" "$chroot_script"
-    
-    # Копирование и выполнение
+
+    # Copy and execute
     run_cmd cp "$chroot_script" "$MOUNT_POINT/tmp/chroot-setup.sh"
     run_cmd chmod +x "$MOUNT_POINT/tmp/chroot-setup.sh"
-    
-    log_info "Выполнение настройки в chroot..."
+
+    log_info "Running chroot configuration..."
     run_cmd chroot "$MOUNT_POINT" /bin/bash /tmp/chroot-setup.sh
-    
-    # Очистка
+
+    # Cleanup
     run_cmd rm "$MOUNT_POINT/tmp/chroot-setup.sh"
     rm "$chroot_script"
 }
 
 setup_efi() {
-    log_step "Настройка EFI System Partition"
-    
-    # Форматирование EFI раздела
-    log_info "Форматирование $BOOT_DEVICE в FAT32..."
+    log_step "Configuring EFI System Partition"
+
+    # Format EFI partition
+    log_info "Formatting $BOOT_DEVICE to FAT32..."
     run_cmd mkfs.vfat -F32 "$BOOT_DEVICE"
-    
-    # Получение UUID
+
+    # Get UUID
     local BOOT_UUID
     BOOT_UUID=$(run_cmd blkid -s UUID -o value "$BOOT_DEVICE")
-    
-    # Создание fstab
-    log_info "Настройка /etc/fstab..."
+
+    # Create fstab
+    log_info "Configuring /etc/fstab..."
     cat > "$MOUNT_POINT/etc/fstab" << EOF
 # EFI System Partition
 UUID=${BOOT_UUID}  /boot/efi  vfat  defaults  0  0
 EOF
-    
-    # Монтирование EFI
-    log_info "Монтирование EFI раздела..."
+
+    # Mount EFI
+    log_info "Mounting EFI partition..."
     run_cmd mkdir -p "$MOUNT_POINT/boot/efi"
     run_cmd chroot "$MOUNT_POINT" mount /boot/efi
-    
-    log_info "EFI раздел настроен"
+
+    log_info "EFI partition configured"
 }
 
 install_zfsbootmenu() {
-    log_step "Установка ZFSBootMenu"
-    
-    # Создание директории
-    log_info "Скачивание ZFSBootMenu EFI..."
+    log_step "Installing ZFSBootMenu"
+
+    # Create directory
+    log_info "Downloading ZFSBootMenu EFI..."
     run_cmd chroot "$MOUNT_POINT" mkdir -p /boot/efi/EFI/ZBM
-    
-    # Скачивание EFI бинаря
+
+    # Download EFI binary
     run_cmd chroot "$MOUNT_POINT" curl -o /boot/efi/EFI/ZBM/VMLINUZ.EFI \
         -L https://get.zfsbootmenu.org/efi
-    
-    # Резервная копия
+
+    # Backup
     run_cmd chroot "$MOUNT_POINT" cp /boot/efi/EFI/ZBM/VMLINUZ.EFI \
         /boot/efi/EFI/ZBM/VMLINUZ-BACKUP.EFI
-    
-    # Настройка EFI boot записей
-    log_info "Создание EFI boot записей..."
+
+    # Configure EFI boot entries
+    log_info "Creating EFI boot entries..."
     run_cmd efibootmgr -c -d "$DISK" -p "$BOOT_PART" \
         -L "ZFSBootMenu (Backup)" \
         -l '\EFI\ZBM\VMLINUZ-BACKUP.EFI'
-    
+
     run_cmd efibootmgr -c -d "$DISK" -p "$BOOT_PART" \
         -L "ZFSBootMenu" \
         -l '\EFI\ZBM\VMLINUZ.EFI'
-    
-    log_info "ZFSBootMenu установлен"
+
+    log_info "ZFSBootMenu installed"
 }
 
 configure_zram() {
-    log_step "Настройка ZRAM"
-    
-    # Создание конфигурации systemd-zram-generator
-    log_info "Создание конфигурации ZRAM..."
+    log_step "Configuring ZRAM"
+
+    # Create systemd-zram-generator configuration
+    log_info "Creating ZRAM configuration..."
     run_cmd mkdir -p "$MOUNT_POINT/etc/systemd"
-    
+
     cat > "$MOUNT_POINT/etc/systemd/zram-generator.conf" << 'EOF'
 [zram0]
-# Использовать 60% RAM или максимум 4GB
+# Use 60% RAM or maximum 4GB
 zram-size = min(ram * 0.6, 4096)
 compression-algorithm = zstd
 fs-type = swap
 mount-point = none
 EOF
-    
-    log_info "ZRAM конфигурация создана"
-    log_info "Файл: /etc/systemd/zram-generator.conf"
+
+    log_info "ZRAM configuration created"
+    log_info "File: /etc/systemd/zram-generator.conf"
 }
 
 finalize() {
-    log_step "Завершение установки"
-    
-    # Выход из chroot
-    log_info "Размонтирование файловых систем..."
+    log_step "Finalizing installation"
+
+    # Exit chroot
+    log_info "Unmounting filesystems..."
     run_cmd umount -n -R "$MOUNT_POINT" || true
-    
-    # Экспорт пула
-    log_info "Экспорт ZFS пула..."
+
+    # Export pool
+    log_info "Exporting ZFS pool..."
     run_cmd zpool export "$POOL_NAME" || true
-    
+
     log_info ""
     log_warn "═══════════════════════════════════════════════════════"
-    log_warn "УСТАНОВКА ЗАВЕРШЕНА УСПЕШНО!"
+    log_warn "INSTALLATION COMPLETED SUCCESSFULLY!"
     log_warn "═══════════════════════════════════════════════════════"
     log_info ""
-    log_info "Следующие шаги:"
-    log_info "  1. Перезагрузите систему: reboot"
-    log_info "  2. Извлеките Live USB"
-    log_info "  3. В UEFI выберите 'ZFSBootMenu'"
-    log_info "  4. Войдите в систему (root / $ROOT_PASSWORD)"
-    log_info "  5. СМЕНите пароль: passwd"
+    log_info "Next steps:"
+    log_info "  1. Reboot system: reboot"
+    log_info "  2. Remove Live USB"
+    log_info "  3. Select 'ZFSBootMenu' in UEFI"
+    log_info "  4. Login (root / $ROOT_PASSWORD)"
+    log_info "  5. CHANGE password: passwd"
     log_info ""
     if [ "$ENCRYPT" = true ]; then
-        log_warn "ВНИМАНИЕ: При загрузке потребуется passphrase для ZFS!"
+        log_warn "WARNING: Passphrase will be required for ZFS at boot!"
         log_info ""
     fi
-    log_info "Полезные команды после загрузки:"
-    log_info "  zpool status              # Проверка ZFS пула"
-    log_info "  zfs list                  # Список датасетов"
-    log_info "  zramctl                   # Проверка ZRAM"
-    log_info "  efibootmgr -v             # EFI boot записи"
+    log_info "Useful commands after boot:"
+    log_info "  zpool status              # Check ZFS pool"
+    log_info "  zfs list                  # List datasets"
+    log_info "  zramctl                   # Check ZRAM"
+    log_info "  efibootmgr -v             # EFI boot entries"
     log_info ""
-    log_warn "НЕ ЗАБУДЬТЕ СМЕНИТЬ ПАРОЛЬ ROOT!"
+    log_warn "DON'T FORGET TO CHANGE THE ROOT PASSWORD!"
     log_warn "═══════════════════════════════════════════════════════"
 }
 
 ###############################################################################
-# Основной процесс
+# Main process
 ###############################################################################
 
 main() {
     log_info "═══════════════════════════════════════════════════════"
     log_info "Debian Bookworm ZFS Root Installation Script"
-    log_info "Версия: 1.0 (Апрель 2026)"
+    log_info "Version: 1.0 (April 2026)"
     log_info "═══════════════════════════════════════════════════════"
-    
+
     install_packages
     prepare_disk
     create_zfs_pool
@@ -599,5 +599,5 @@ main() {
     finalize
 }
 
-# Запуск
+# Run
 main "$@"

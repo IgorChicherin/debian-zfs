@@ -1,26 +1,26 @@
 #!/bin/bash
 ###############################################################################
-# build-iso.sh — Сборка кастомного Debian Live ISO с ZFS
+# build-iso.sh — Custom Debian Live ISO build with ZFS
 #
-# Использование:
+# Usage:
 #   sudo bash scripts/build-iso.sh [OPTIONS]
 #
-# Опции:
-#   --clean               Очистить предыдущие сборки
-#   --debug               Режим отладки
-#   --output-dir DIR      Директория вывода (по умолчанию: output)
-#   --help                Показать справку
+# Options:
+#   --clean               Clean previous builds
+#   --debug               Debug mode
+#   --output-dir DIR      Output directory (default: output)
+#   --help                Show help
 #
-# Требования:
-#   - Debian Bookworm или новее
-#   - Пакет live-build
-#   - Минимум 10GB свободного места
-#   - Root права
+# Requirements:
+#   - Debian Bookworm or newer
+#   - live-build package
+#   - Minimum 10GB free space
+#   - Root privileges
 ###############################################################################
 
 set -euo pipefail
 
-# Цвета
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -32,7 +32,7 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step() { echo -e "\n${BLUE}[STEP]${NC} $1"; }
 
-# Параметры
+# Parameters
 CLEAN_MODE=false
 DEBUG_MODE=false
 OUTPUT_DIR="output"
@@ -40,7 +40,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 LB_CONFIG_DIR="$PROJECT_DIR/config/live-build"
 
-# Парсинг аргументов
+# Argument parsing
 while [[ $# -gt 0 ]]; do
     case $1 in
         --clean) CLEAN_MODE=true; shift ;;
@@ -50,117 +50,117 @@ while [[ $# -gt 0 ]]; do
             head -n 20 "$0" | tail -n +2 | sed 's/^# \?//'
             exit 0
             ;;
-        *) log_error "Неизвестный параметр: $1"; exit 1 ;;
+        *) log_error "Unknown parameter: $1"; exit 1 ;;
     esac
 done
 
-# Проверка root
+# Check root
 if [ "$(id -u)" -ne 0 ]; then
-    log_error "Запустите скрипт от имени root (sudo)"
+    log_error "Run this script as root (sudo)"
     exit 1
 fi
 
 ###############################################################################
-# Проверки
+# Checks
 ###############################################################################
 
 check_prerequisites() {
-    log_step "Проверка предварительных условий"
+    log_step "Checking prerequisites"
 
-    # Проверка файловой системы (WSL /mnt/ проблемы)
+    # Check filesystem (WSL /mnt/ issues)
     local work_dir_path
     work_dir_path="$(pwd)"
     if echo "$work_dir_path" | grep -q '^/mnt/'; then
-        log_warn "Обнаружена работа из WSL на смонтированной файловой системе (/mnt/)"
-        log_warn "Сборка live-build на NTFS/DrvFs может завершиться с ошибкой tar"
-        log_info "Рекомендуется скопировать проект в нативную файловую систему Linux:"
+        log_warn "Detected WSL operation on mounted filesystem (/mnt/)"
+        log_warn "live-build on NTFS/DrvFs may fail with tar errors"
+        log_info "Recommended to copy project to native Linux filesystem:"
         log_info "  cp -r $work_dir_path ~/debian-zfs && cd ~/debian-zfs"
-        read -p "Продолжить несмотря на это? (да/нет): " fs_confirm
-        if [ "$fs_confirm" != "да" ]; then
-            log_info "Сборка отменена"
+        read -p "Continue anyway? (yes/no): " fs_confirm
+        if [ "$fs_confirm" != "yes" ]; then
+            log_info "Build cancelled"
             exit 0
         fi
     fi
 
-    # Проверка live-build
+    # Check live-build
     if ! command -v lb &>/dev/null && ! command -v live-build &>/dev/null; then
-        log_warn "live-build не установлен"
-        read -p "Установить live-build? (да/нет): " confirm
-        if [ "$confirm" = "да" ]; then
+        log_warn "live-build not installed"
+        read -p "Install live-build? (yes/no): " confirm
+        if [ "$confirm" = "yes" ]; then
             DEBIAN_FRONTEND=noninteractive apt update
             DEBIAN_FRONTEND=noninteractive apt install -y live-build
         else
-            log_error "live-build необходим для сборки"
+            log_error "live-build required for build"
             exit 1
         fi
     fi
-    
-    # Проверка места
+
+    # Check space
     local available_space
     available_space=$(df -BM . | awk 'NR==2 {print $4}' | tr -d 'M')
     available_space=$((available_space / 1024))
 
     if [ "$available_space" -lt 10 ]; then
-        log_error "Недостаточно места! Требуется минимум 10GB"
-        log_info "Доступно: ${available_space}GB"
+        log_error "Insufficient space! Minimum 10GB required"
+        log_info "Available: ${available_space}GB"
         exit 1
     fi
-    
-    log_info "live-build установлен ✓"
-    log_info "Доступно места: ${available_space}GB ✓"
+
+    log_info "live-build installed ✓"
+    log_info "Available space: ${available_space}GB ✓"
 }
 
 ###############################################################################
-# Очистка
+# Cleanup
 ###############################################################################
 
 clean_previous() {
     if [ "$CLEAN_MODE" = true ]; then
-        log_step "Очистка предыдущих сборок"
-        
-        # Очистка live-build
+        log_step "Cleaning previous builds"
+
+        # Clean live-build
         if [ -d auto ]; then
             lb clean
         fi
-        
-        # Удаление выходной директории
+
+        # Remove output directory
         if [ -d "$OUTPUT_DIR" ]; then
-            log_info "Удаление $OUTPUT_DIR..."
+            log_info "Removing $OUTPUT_DIR..."
             rm -rf "$OUTPUT_DIR"
         fi
-        
-        log_info "Очистка завершена"
+
+        log_info "Cleanup completed"
     fi
 }
 
 ###############################################################################
-# Настройка live-build
+# live-build setup
 ###############################################################################
 
 setup_live_build() {
-    log_step "Настройка live-build"
+    log_step "Configuring live-build"
 
-    # Создание рабочей директории
+    # Create working directory
     local work_dir="live-build-work"
     mkdir -p "$work_dir"
     cd "$work_dir"
 
-    # Всегда заново инициализируем чтобы избежать конфликтов конфигурации
+    # Always reinitialize to avoid configuration conflicts
     if [ -d auto ]; then
-        log_info "Очистка предыдущей конфигурации..."
+        log_info "Cleaning previous configuration..."
         lb clean 2>/dev/null || true
         rm -rf auto config
     fi
 
-    # Очистка кеша debootstrap (частая причина tar ошибок)
+    # Clear debootstrap cache (common cause of tar errors)
     if [ -d cache ]; then
-        log_info "Очистка кеша debootstrap..."
+        log_info "Clearing debootstrap cache..."
         rm -rf cache
     fi
 
-    log_info "Инициализация live-build с параметрами bookworm..."
+    log_info "Initializing live-build with bookworm parameters..."
 
-    # Инициализация с явными параметрами (избегаем проблем с auto/config)
+    # Initialize with explicit parameters (avoid auto/config issues)
     lb config \
         --architecture amd64 \
         --distribution bookworm \
@@ -168,62 +168,62 @@ setup_live_build() {
         --linux-flavours amd64 \
         2>&1 | tee -a build.log
 
-    # Включаем backports (нет параметра командной строки, модифицируем файл)
-    log_info "Включение backports..."
+    # Enable backports (no command line parameter, modify file directly)
+    log_info "Enabling backports..."
     sed -i 's/LB_BACKPORTS="false"/LB_BACKPORTS="true"/g' config/chroot
 
-    # Проверка конфигурации
-    log_info "Проверка конфигурации:"
+    # Check configuration
+    log_info "Configuration check:"
     grep "LB_DISTRIBUTION=" config/bootstrap | head -1
     grep "LB_ARCHIVE_AREAS=" config/bootstrap | head -1
     grep "LB_BACKPORTS=" config/chroot | head -1
 
-    # Копирование конфигурации
-    log_info "Копирование конфигурации..."
-    
+    # Copy configuration
+    log_info "Copying configuration..."
+
     # Package lists
     if [ -d "$LB_CONFIG_DIR/package-lists" ]; then
         mkdir -p config/package-lists
         cp "$LB_CONFIG_DIR"/package-lists/*.chroot config/package-lists/
-        log_info "Package lists скопированы"
+        log_info "Package lists copied"
     fi
-    
+
     # Includes
     if [ -d "$LB_CONFIG_DIR/includes.chroot" ]; then
         mkdir -p config/includes.chroot
         cp -r "$LB_CONFIG_DIR"/includes.chroot/* config/includes.chroot/
-        log_info "Includes скопированы"
+        log_info "Includes copied"
     fi
 
-    log_info "Конфигурация live-build готова"
+    log_info "live-build configuration ready"
 }
 
 ###############################################################################
-# Сборка
+# Build
 ###############################################################################
 
 build_iso() {
-    log_step "Сборка ISO"
+    log_step "Building ISO"
 
     mkdir -p "$PROJECT_DIR/$OUTPUT_DIR"
 
-    log_info "Запуск сборки (это может занять 20-40 минут)..."
-    log_info "Лог сохраняется в build.log"
+    log_info "Starting build (this may take 20-40 minutes)..."
+    log_info "Log saved to build.log"
 
-    # Запуск сборки (use pipefail-safe pattern)
+    # Start build (use pipefail-safe pattern)
     local build_status=0
     lb build > build.log 2>&1 || build_status=$?
 
     if [ "$build_status" -ne 0 ]; then
-        log_error "Сборка не удалась! (exit code: $build_status)"
-        log_info "Последние 50 строк из build.log:"
+        log_error "Build failed! (exit code: $build_status)"
+        log_info "Last 50 lines from build.log:"
         tail -n 50 build.log
         exit 1
     fi
 
-    log_info "Сборка завершена успешно ✓"
+    log_info "Build completed successfully ✓"
 
-    # Копирование ISO (check multiple possible locations/patterns)
+    # Copy ISO (check multiple possible locations/patterns)
     local iso_file=""
 
     # Try common patterns: live-image-*.iso, binary.iso, or any .iso
@@ -242,76 +242,76 @@ build_iso() {
     if [ -n "$iso_file" ]; then
         cp "$iso_file" "$PROJECT_DIR/$OUTPUT_DIR/debian-zfs-live.iso"
 
-        log_info "ISO скопирован:"
+        log_info "ISO copied:"
         log_info "  $PROJECT_DIR/$OUTPUT_DIR/debian-zfs-live.iso"
 
-        # Размер
+        # Size
         local size
         size=$(du -h "$PROJECT_DIR/$OUTPUT_DIR/debian-zfs-live.iso" | cut -f1)
-        log_info "Размер: $size"
+        log_info "Size: $size"
     else
-        log_error "ISO файл не найдено!"
-        log_info "Содержимое текущей директории:"
+        log_error "ISO file not found!"
+        log_info "Current directory contents:"
         ls -la
-        log_info "Проверьте build.log для деталей"
+        log_info "Check build.log for details"
         exit 1
     fi
 }
 
 ###############################################################################
-# Пост-обработка
+# Post-processing
 ###############################################################################
 
 post_build() {
-    log_step "Пост-обработка"
+    log_step "Post-processing"
 
-    # Создание SHA256
+    # Create SHA256
     if [ -f "$PROJECT_DIR/$OUTPUT_DIR/debian-zfs-live.iso" ]; then
-        log_info "Создание SHA256 хеша..."
+        log_info "Creating SHA256 hash..."
         (cd "$PROJECT_DIR/$OUTPUT_DIR" && sha256sum debian-zfs-live.iso > debian-zfs-live.iso.sha256)
-        log_info "Хеш создан:"
+        log_info "Hash created:"
         cat "$PROJECT_DIR/$OUTPUT_DIR/debian-zfs-live.iso.sha256"
     fi
 
-    # Очистка рабочей директории
+    # Clean working directory
     local work_dir="$PROJECT_DIR/live-build-work"
-    log_warn "Рабочая директория сохранена для отладки:"
+    log_warn "Working directory preserved for debugging:"
     log_warn "  $work_dir"
-    log_info "Для удаления: rm -rf $work_dir"
+    log_info "To remove: rm -rf $work_dir"
 }
 
 ###############################################################################
-# Основной процесс
+# Main process
 ###############################################################################
 
 main() {
     log_info "═══════════════════════════════════════════════════════"
     log_info "Debian ZFS Live ISO Builder"
-    log_info "Версия: 1.0 (Апрель 2026)"
+    log_info "Version: 1.0 (April 2026)"
     log_info "═══════════════════════════════════════════════════════"
-    
+
     check_prerequisites
     clean_previous
     setup_live_build
     build_iso
     post_build
-    
+
     log_info ""
     log_warn "═══════════════════════════════════════════════════════"
-    log_warn "ISO СОБРАН УСПЕШНО!"
+    log_warn "ISO BUILT SUCCESSFULLY!"
     log_warn "═══════════════════════════════════════════════════════"
     log_info ""
-    log_info "ISO файл:"
+    log_info "ISO file:"
     log_info "  $PROJECT_DIR/$OUTPUT_DIR/debian-zfs-live.iso"
     log_info ""
-    log_info "Следующие шаги:"
-    log_info "  1. Запишите на USB:"
+    log_info "Next steps:"
+    log_info "  1. Write to USB:"
     log_info "     sudo dd if=$PROJECT_DIR/$OUTPUT_DIR/debian-zfs-live.iso of=/dev/sdX bs=4M status=progress"
     log_info ""
-    log_info "  2. Или используйте скрипт:"
+    log_info "  2. Or use script:"
     log_info "     sudo bash scripts/usb-write.sh /dev/sdX"
     log_info ""
-    log_info "  3. Протестируйте в QEMU:"
+    log_info "  3. Test in QEMU:"
     log_info "     bash scripts/test-vm.sh $PROJECT_DIR/$OUTPUT_DIR/debian-zfs-live.iso"
     log_info ""
 }
