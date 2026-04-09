@@ -95,10 +95,15 @@ show_status() {
 
     echo ""
     log_info "ZRAM service:"
-    if systemctl is-active dev-zram0.swap &>/dev/null; then
+    if systemctl is-active dev-zram0.swap &>/dev/null 2>&1; then
         log_info "dev-zram0.swap: active ✓"
+    elif systemctl list-unit-files | grep -q "dev-zram0.swap"; then
+        log_warn "dev-zram0.swap: exists but not active"
+        log_info "Start with: systemctl start dev-zram0.swap"
     else
-        log_warn "dev-zram0.swap: not active"
+        log_warn "dev-zram0.swap: unit not found"
+        log_info "ZRAM generator may not have created the unit"
+        log_info "Try running: zramctl --find --size 1G --algorithm zstd"
     fi
 
     echo ""
@@ -155,12 +160,41 @@ remove_config() {
 install_packages() {
     log_step "Installing packages"
 
-    if ! command -v systemd-zram-setup &>/dev/null && [ ! -f /usr/lib/systemd/system-generators/zram-generator ]; then
+    # Check if zram-generator is already installed
+    local generator_found=false
+    for path in /usr/lib/systemd/system-generators/zram-generator \
+                /lib/systemd/system-generators/zram-generator; do
+        if [ -x "$path" ]; then
+            generator_found=true
+            log_info "zram-generator found at: $path"
+            break
+        fi
+    done
+
+    if [ "$generator_found" = false ]; then
         log_info "Installing systemd-zram-generator..."
         apt update
         apt install -y systemd-zram-generator
-    else
-        log_info "systemd-zram-generator already installed"
+        
+        # Verify installation
+        sleep 2
+        local verify_found=false
+        for path in /usr/lib/systemd/system-generators/zram-generator \
+                    /lib/systemd/system-generators/zram-generator; do
+            if [ -x "$path" ]; then
+                verify_found=true
+                log_info "zram-generator installed successfully at: $path"
+                break
+            fi
+        done
+        
+        if [ "$verify_found" = false ]; then
+            log_error "systemd-zram-generator installed but generator binary not found!"
+            log_info "Try manual installation:"
+            log_info "  apt install --reinstall systemd-zram-generator"
+            log_info "  dpkg -L systemd-zram-generator"
+            exit 1
+        fi
     fi
 }
 
@@ -210,14 +244,57 @@ EOF
 activate_zram() {
     log_step "Activating ZRAM"
 
-    # Reload systemd
+    # Verify zram-generator exists
+    local generator_path=""
+    for path in /usr/lib/systemd/system-generators/zram-generator \
+                /lib/systemd/system-generators/zram-generator; do
+        if [ -x "$path" ]; then
+            generator_path="$path"
+            break
+        fi
+    done
+
+    if [ -z "$generator_path" ]; then
+        log_error "zram-generator not found!"
+        log_info "Make sure systemd-zram-generator is properly installed"
+        log_info "Try: dpkg -L systemd-zram-generator"
+        exit 1
+    fi
+
+    log_info "Found zram-generator at: $generator_path"
+
+    # Reload systemd to regenerate units
     log_info "Reloading systemd daemon..."
     systemctl daemon-reload
+
+    # Give systemd time to process generators
+    sleep 2
+
+    # Check if unit was created
+    if ! systemctl list-unit-files | grep -q "dev-zram0.swap"; then
+        log_warn "ZRAM unit not created by generator!"
+        log_info "This may indicate an issue with zram-generator"
+        log_info ""
+        log_info "Debugging steps:"
+        log_info "  1. Check generator logs:"
+        log_info "     journalctl -xe | grep zram"
+        log_info "  2. Manually test generator:"
+        log_info "     $generator_path /run/systemd/system"
+        log_info "  3. List generated units:"
+        log_info "     ls -la /run/systemd/system/ | grep zram"
+        log_info ""
+        log_warn "Continuing anyway..."
+        return 1
+    fi
 
     # Start ZRAM
     if [ "$MODE" = "swap" ]; then
         log_info "Starting ZRAM swap..."
-        systemctl start dev-zram0.swap
+        systemctl start dev-zram0.swap || {
+            log_error "Failed to start dev-zram0.swap!"
+            log_info "Check logs: journalctl -xeu dev-zram0.swap"
+            exit 1
+        }
 
         # Check
         sleep 2
@@ -299,6 +376,12 @@ main() {
     log_info "  swapon --show           # Swap devices"
     log_info "  systemctl status dev-zram0.swap  # Service status"
     log_info "  free -h                 # Memory usage"
+    log_info ""
+    
+    # Add note for live environment
+    log_warn "NOTE: If you're in a live environment:"
+    log_warn "  ZRAM may not activate properly without full systemd"
+    log_warn "  The configuration will be applied after reboot"
     log_info ""
 }
 
