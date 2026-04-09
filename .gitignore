@@ -1,0 +1,28 @@
+# Выходные файлы
+output/
+*.iso
+*.iso.sha256
+*.qcow2
+*.img
+
+# Live build рабочие директории
+live-build-work/
+auto/
+config/
+cache/
+
+# Временные файлы
+*.log
+*.tmp
+/tmp/qemu-*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
