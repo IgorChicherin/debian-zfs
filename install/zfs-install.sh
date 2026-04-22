@@ -7,6 +7,8 @@
 #
 # Options:
 #   --disk DISK         Installation disk (required)
+#   --use-free-space    Install alongside Windows using existing free GPT space
+#   --efi-part NUM      Reuse existing EFI partition number (auto-detect by default)
 #   --encrypt           Enable ZFS native encryption
 #   --passphrase PHRASE Encryption passphrase (if not specified, will prompt)
 #   --hostname NAME     Hostname (default: debian-zfs)
@@ -24,6 +26,9 @@
 #
 #   # Custom hostname
 #   sudo bash zfs-install.sh --disk /dev/nvme0n1 --hostname nas-server
+#
+#   # Install next to Windows into existing free space
+#   sudo bash zfs-install.sh --disk /dev/nvme0n1 --use-free-space
 ###############################################################################
 
 set -euo pipefail
@@ -60,9 +65,12 @@ HOSTNAME="debian-zfs"
 ROOT_PASSWORD="root"
 POOL_NAME="zroot"
 DRY_RUN=false
+USE_FREE_SPACE=false
 BOOT_PART=1
 POOL_PART=2
 BOOT_SIZE="+512M"
+EFI_PART=""
+MIN_FREE_SPACE_GIB=20
 
 # Help function
 show_help() {
@@ -80,6 +88,14 @@ while [[ $# -gt 0 ]]; do
         --encrypt)
             ENCRYPT=true
             shift
+            ;;
+        --use-free-space)
+            USE_FREE_SPACE=true
+            shift
+            ;;
+        --efi-part)
+            EFI_PART="$2"
+            shift 2
             ;;
         --passphrase)
             PASSPHRASE="$2"
@@ -131,37 +147,12 @@ if [ ! -b "$DISK" ]; then
     exit 1
 fi
 
-# Data loss warning
-log_warn "WARNING: All data on disk $DISK will be DESTROYED!"
-log_warn "Disk: $(lsblk -dn -o NAME,SIZE "$DISK")"
-
-if [ "$DRY_RUN" = false ]; then
-    read -p "Continue? (yes/no): " confirm
-    if [ "$confirm" != "yes" ]; then
-        log_info "Cancelled by user"
-        exit 0
-    fi
-fi
-
 # Variables
-BOOT_DEVICE="${DISK}${BOOT_PART}"
-POOL_DEVICE="${DISK}${POOL_PART}"
 MOUNT_POINT="/mnt"
 DEBIAN_RELEASE="bookworm"
 
-# For NVMe drives adjust names
-if [[ "$DISK" == *nvme* ]]; then
-    BOOT_DEVICE="${DISK}p${BOOT_PART}"
-    POOL_DEVICE="${DISK}p${POOL_PART}"
-fi
-
-log_info "Configuration:"
-log_info "  Disk: $DISK"
-log_info "  EFI partition: $BOOT_DEVICE"
-log_info "  ZFS partition: $POOL_DEVICE"
-log_info "  Pool: $POOL_NAME"
-log_info "  Encryption: $ENCRYPT"
-log_info "  Hostname: $HOSTNAME"
+BOOT_DEVICE=""
+POOL_DEVICE=""
 
 ###############################################################################
 # Functions
@@ -173,6 +164,140 @@ run_cmd() {
     else
         "$@"
     fi
+}
+
+partition_device() {
+    local disk="$1"
+    local part="$2"
+
+    if [[ "$disk" == *nvme* ]] || [[ "$disk" == *mmcblk* ]]; then
+        echo "${disk}p${part}"
+    else
+        echo "${disk}${part}"
+    fi
+}
+
+require_gpt_disk() {
+    if ! sgdisk -p "$DISK" >/tmp/sgdisk-layout.$$ 2>&1; then
+        cat /tmp/sgdisk-layout.$$ >&2 || true
+        rm -f /tmp/sgdisk-layout.$$
+        log_error "Failed to read partition table from $DISK"
+        exit 1
+    fi
+
+    if ! grep -q "GPT" /tmp/sgdisk-layout.$$; then
+        rm -f /tmp/sgdisk-layout.$$
+        log_error "$DISK must use GPT for --use-free-space mode"
+        exit 1
+    fi
+
+    rm -f /tmp/sgdisk-layout.$$
+}
+
+find_existing_efi_part() {
+    sgdisk -p "$DISK" | awk '$1 ~ /^[0-9]+$/ && toupper($6) == "EF00" {print $1; exit}'
+}
+
+next_partition_number() {
+    sgdisk -p "$DISK" | awk '$1 ~ /^[0-9]+$/ {last=$1} END {print (last ? last + 1 : 1)}'
+}
+
+check_partition_type() {
+    local part="$1"
+    local expected="$2"
+    local actual
+    actual=$(sgdisk -i "$part" "$DISK" 2>/dev/null | awk -F': ' '/Partition GUID code/ {print toupper(substr($2, 1, 4)); exit}')
+    [ "$actual" = "$expected" ]
+}
+
+resolve_install_layout() {
+    if [ "$USE_FREE_SPACE" = true ]; then
+        require_gpt_disk
+
+        if [ -n "$EFI_PART" ]; then
+            BOOT_PART="$EFI_PART"
+        else
+            BOOT_PART=$(find_existing_efi_part)
+        fi
+
+        if [ -z "$BOOT_PART" ]; then
+            log_error "No EFI System Partition found on $DISK"
+            log_info "Create or specify it with --efi-part NUM"
+            exit 1
+        fi
+
+        if ! check_partition_type "$BOOT_PART" "EF00"; then
+            log_error "Partition $BOOT_PART on $DISK is not an EFI System Partition"
+            exit 1
+        fi
+
+        POOL_PART=$(next_partition_number)
+        BOOT_DEVICE=$(partition_device "$DISK" "$BOOT_PART")
+        POOL_DEVICE=$(partition_device "$DISK" "$POOL_PART")
+
+        local sector_size free_start free_end free_sectors free_bytes free_gib
+        sector_size=$(blockdev --getss "$DISK")
+        free_start=$(sgdisk -F "$DISK" 2>/dev/null || true)
+        free_end=$(sgdisk -E "$DISK" 2>/dev/null || true)
+
+        if [[ -z "$free_start" || -z "$free_end" || "$free_start" = "0" || "$free_end" = "0" ]]; then
+            log_error "No free GPT space found on $DISK"
+            log_info "Shrink the Windows partition first to create unallocated space"
+            exit 1
+        fi
+
+        if [ "$free_end" -lt "$free_start" ]; then
+            log_error "Invalid free-space range detected on $DISK"
+            exit 1
+        fi
+
+        free_sectors=$((free_end - free_start + 1))
+        free_bytes=$((free_sectors * sector_size))
+        free_gib=$((free_bytes / 1024 / 1024 / 1024))
+
+        if [ "$free_gib" -lt "$MIN_FREE_SPACE_GIB" ]; then
+            log_error "Only ${free_gib} GiB of free space found on $DISK"
+            log_info "At least ${MIN_FREE_SPACE_GIB} GiB of free space is required"
+            exit 1
+        fi
+
+        log_warn "Windows-preserving mode enabled"
+        log_warn "Existing partitions will be kept; only free space will be used"
+        log_warn "Disk: $(lsblk -dn -o NAME,SIZE "$DISK")"
+        log_warn "EFI partition: $BOOT_DEVICE"
+        log_warn "Free space selected for ZFS: ${free_gib} GiB"
+
+        if [ "$DRY_RUN" = false ]; then
+            read -p "Create Debian ZFS in free space and reuse EFI partition ${BOOT_PART}? (yes/no): " confirm
+            if [ "$confirm" != "yes" ]; then
+                log_info "Cancelled by user"
+                exit 0
+            fi
+        fi
+    else
+        BOOT_DEVICE=$(partition_device "$DISK" "$BOOT_PART")
+        POOL_DEVICE=$(partition_device "$DISK" "$POOL_PART")
+
+        log_warn "WARNING: All data on disk $DISK will be DESTROYED!"
+        log_warn "Disk: $(lsblk -dn -o NAME,SIZE "$DISK")"
+
+        if [ "$DRY_RUN" = false ]; then
+            read -p "Continue? (yes/no): " confirm
+            if [ "$confirm" != "yes" ]; then
+                log_info "Cancelled by user"
+                exit 0
+            fi
+        fi
+    fi
+
+    log_info "Configuration:"
+    log_info "  Disk: $DISK"
+    log_info "  Mode: $([ "$USE_FREE_SPACE" = true ] && echo "free-space" || echo "wipe-disk")"
+    log_info "  EFI partition: $BOOT_DEVICE"
+    log_info "  ZFS partition: $POOL_DEVICE"
+    log_info "  Pool: $POOL_NAME"
+    log_info "  Encryption: $ENCRYPT"
+    log_info "  Hostname: $HOSTNAME"
 }
 
 install_packages() {
@@ -213,18 +338,28 @@ install_packages() {
 prepare_disk() {
     log_step "Preparing disk $DISK"
 
-    # Clear old partitions
-    log_info "Clearing disk..."
-    run_cmd zpool labelclear -f "$DISK" 2>/dev/null || true
-    run_cmd wipefs -a "$DISK"
-    run_cmd sgdisk --zap-all "$DISK"
+    if [ "$USE_FREE_SPACE" = true ]; then
+        local free_start free_end
+        free_start=$(sgdisk -F "$DISK")
+        free_end=$(sgdisk -E "$DISK")
 
-    # Create partitions
-    log_info "Creating EFI partition (${BOOT_SIZE})..."
-    run_cmd sgdisk -n "${BOOT_PART}:1m:${BOOT_SIZE}" -t "${BOOT_PART}:ef00" "$DISK"
+        log_info "Reusing existing EFI partition: $BOOT_DEVICE"
+        log_info "Creating ZFS partition in free space (${POOL_DEVICE})..."
+        run_cmd sgdisk -n "${POOL_PART}:${free_start}:${free_end}" -t "${POOL_PART}:bf00" "$DISK"
+    else
+        # Clear old partitions
+        log_info "Clearing disk..."
+        run_cmd zpool labelclear -f "$DISK" 2>/dev/null || true
+        run_cmd wipefs -a "$DISK"
+        run_cmd sgdisk --zap-all "$DISK"
 
-    log_info "Creating ZFS partition (remaining space)..."
-    run_cmd sgdisk -n "${POOL_PART}:0:-10m" -t "${POOL_PART}:bf00" "$DISK"
+        # Create partitions
+        log_info "Creating EFI partition (${BOOT_SIZE})..."
+        run_cmd sgdisk -n "${BOOT_PART}:1m:${BOOT_SIZE}" -t "${BOOT_PART}:ef00" "$DISK"
+
+        log_info "Creating ZFS partition (remaining space)..."
+        run_cmd sgdisk -n "${POOL_PART}:0:-10m" -t "${POOL_PART}:bf00" "$DISK"
+    fi
 
     # Update partition table
     run_cmd partprobe "$DISK" 2>/dev/null || true
@@ -548,9 +683,13 @@ CHROOT_SCRIPT
 setup_efi() {
     log_step "Configuring EFI System Partition"
 
-    # Format EFI partition
-    log_info "Formatting $BOOT_DEVICE to FAT32..."
-    run_cmd mkfs.vfat -F32 "$BOOT_DEVICE"
+    if [ "$USE_FREE_SPACE" = true ]; then
+        log_info "Reusing existing EFI System Partition: $BOOT_DEVICE"
+    else
+        # Format EFI partition
+        log_info "Formatting $BOOT_DEVICE to FAT32..."
+        run_cmd mkfs.vfat -F32 "$BOOT_DEVICE"
+    fi
 
     # Get UUID
     local BOOT_UUID
@@ -693,6 +832,7 @@ main() {
     log_info "Version: 1.0 (April 2026)"
     log_info "═══════════════════════════════════════════════════════"
 
+    resolve_install_layout
     install_packages
     prepare_disk
     create_zfs_pool

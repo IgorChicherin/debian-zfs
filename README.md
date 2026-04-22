@@ -73,6 +73,13 @@ sudo bash install/zfs-install.sh --disk /dev/sda
 
 # Or with encryption:
 sudo bash install/zfs-install.sh --disk /dev/sda --encrypt --passphrase "YOUR_PASSPHRASE"
+
+# Install alongside Windows using existing unallocated/free GPT space:
+# Reuses the existing EFI partition instead of formatting the disk.
+sudo bash install/zfs-install.sh --disk /dev/nvme0n1 --use-free-space
+
+# If auto-detection picks the wrong EFI partition, specify it explicitly:
+sudo bash install/zfs-install.sh --disk /dev/nvme0n1 --use-free-space --efi-part 1
 ```
 
 ### 3. Setup ZFSBootMenu
@@ -136,7 +143,8 @@ bash scripts/test-vm.sh --disk /dev/sdX
 2. **ZFSBootMenu replaces GRUB** — do not install GRUB when using ZFSBootMenu
 3. **Do not use zram-tools and systemd-zram-generator simultaneously** — choose one (systemd is recommended)
 4. **EFI backup** — always backup VMLINUZ.EFI before updates
-5. **Kernel not found error** — if ZFSBootMenu shows "failed to find kernels", run:
+5. **Windows dual-boot mode requires GPT free space** — shrink the Windows partition first and leave unallocated space; the script will reuse the existing EFI partition
+6. **Kernel not found error** — if ZFSBootMenu shows "failed to find kernels", run:
    ```bash
    sudo bash install/zbm-check-kernels.sh --pool zroot --dataset ROOT/bookworm --fix
    ```
