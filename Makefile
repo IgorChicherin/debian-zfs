@@ -102,7 +102,7 @@ build: check
 	@echo "$(BLUE)[BUILD]$(NC) Запуск сборки ISO..."
 	@echo ""
 	@mkdir -p $(OUTPUT_DIR)
-	@if [ "$(id -u)" -eq 0 ]; then \
+	@if [ "$$(id -u)" -eq 0 ]; then \
 		bash scripts/build-iso.sh --output-dir $(OUTPUT_DIR); \
 	else \
 		echo "$(YELLOW)[INFO]$(NC) Требуются root права. Запустите: sudo make build"; \

@@ -7,7 +7,7 @@
 #
 # Options:
 #   --pool NAME         ZFS pool name (default: zroot)
-#   --dataset NAME      ROOT dataset (default: ROOT/trixie)
+#   --dataset NAME      ROOT dataset (default: ROOT/bookworm)
 #   --boot-device DEV   EFI partition (default: /dev/sda1)
 #   --boot-disk DEV     Disk with EFI (default: /dev/sda)
 #   --boot-part NUM     EFI partition number (default: 1)
@@ -33,7 +33,7 @@ log_step() { echo -e "\n${BLUE}[STEP]${NC} $1"; }
 
 # Parameters
 POOL_NAME="zroot"
-ROOT_DATASET="ROOT/trixie"
+ROOT_DATASET="ROOT/bookworm"
 BOOT_DEVICE="/dev/sda1"
 BOOT_DISK="/dev/sda"
 BOOT_PART="1"
@@ -130,38 +130,14 @@ check_prerequisites() {
 set_dataset_properties() {
     log_step "Configuring dataset properties"
 
-    local dataset="$POOL_NAME/$ROOT_DATASET"
-    local mounted_state
-    local current_mountpoint
-
-    mounted_state=$(zfs get -H -o value mounted "$dataset" 2>/dev/null || echo "no")
-    current_mountpoint=$(findmnt -n -o TARGET -S "$dataset" 2>/dev/null || echo "")
-
-    # Required for ZFSBootMenu boot environment discovery
-    # Avoid changing mount behavior for currently mounted dataset (can fail with '/mnt busy')
-    if [ "$mounted_state" = "yes" ] && [ -n "$current_mountpoint" ] && [ "$current_mountpoint" != "/" ]; then
-        log_warn "Dataset currently mounted at $current_mountpoint"
-        log_warn "Skipping mountpoint/canmount change to avoid busy unmount error"
-        log_info "Apply later after unmount if needed:"
-        log_info "  zfs set mountpoint=/ $dataset"
-        log_info "  zfs set canmount=noauto $dataset"
-    else
-        log_info "Setting mountpoint=/ and canmount=noauto..."
-        zfs set mountpoint=/ "$dataset"
-        zfs set canmount=noauto "$dataset"
-    fi
-
-    log_info "Setting pool bootfs..."
-    zpool set bootfs="$dataset" "$POOL_NAME"
-
     # Set commandline for ZFSBootMenu
     log_info "Setting org.zfsbootmenu:commandline..."
     zfs set org.zfsbootmenu:commandline="quiet loglevel=0" \
-        "$dataset"
+        "$POOL_NAME/$ROOT_DATASET"
 
     # Check encryption
     local encryption
-    encryption=$(zfs get -H -o value encryption "$dataset" 2>/dev/null || echo "off")
+    encryption=$(zfs get -H -o value encryption "$POOL_NAME/$ROOT_DATASET" 2>/dev/null || echo "off")
 
     if [ "$encryption" != "off" ]; then
         log_info "Encryption detected, configuring keysource..."
@@ -170,8 +146,7 @@ set_dataset_properties() {
     fi
 
     log_info "Properties set"
-    zpool get bootfs "$POOL_NAME"
-    zfs get mountpoint,canmount,org.zfsbootmenu:commandline "$dataset"
+    zfs get org.zfsbootmenu:commandline "$POOL_NAME/$ROOT_DATASET"
 }
 
 mount_efi() {
@@ -247,23 +222,13 @@ download_zfsbootmenu() {
         cp "$ZBM_DIR/VMLINUZ.EFI" "$ZBM_DIR/VMLINUZ-OLD.EFI"
     fi
 
-    # Download EFI binary with proper error checking
+    # Download EFI binary
     log_info "Downloading ZFSBootMenu EFI..."
-    if ! curl -fSL --connect-timeout 10 -m 300 -o "$ZBM_DIR/VMLINUZ.EFI" \
-        "https://get.zfsbootmenu.org/efi"; then
-        log_error "Failed to download ZFSBootMenu EFI binary!"
-        log_info "You can manually download from: https://github.com/zbm-dev/zfsbootmenu/releases"
-        exit 1
-    fi
+    curl -o "$ZBM_DIR/VMLINUZ.EFI" -L https://get.zfsbootmenu.org/efi
 
     # Create backup
     log_info "Creating backup..."
     cp "$ZBM_DIR/VMLINUZ.EFI" "$ZBM_DIR/VMLINUZ-BACKUP.EFI"
-
-    # Create UEFI fallback path
-    log_info "Creating fallback EFI path..."
-    mkdir -p /boot/efi/EFI/BOOT
-    cp "$ZBM_DIR/VMLINUZ.EFI" /boot/efi/EFI/BOOT/BOOTX64.EFI
 
     # Check
     local size
@@ -287,33 +252,25 @@ create_efi_entries() {
         mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null || true
     fi
 
-    # Remove old entries (if updating) with more robust parsing
+    # Remove old entries (if updating)
     if [ "$UPDATE_MODE" = true ]; then
         log_info "Removing old ZFSBootMenu entries..."
-        # Better parsing: efibootmgr output format is "Boot0000* Name"
-        efibootmgr | grep "ZFSBootMenu" | sed 's/^Boot//' | sed 's/\*.*//' | sed 's/ .*//' | while read -r num; do
-            if [ -n "$num" ] && [[ "$num" =~ ^[0-9]+$ ]]; then
-                log_info "  Removing Boot$num..."
-                efibootmgr -B -b "$num" 2>/dev/null || log_warn "Failed to remove Boot$num"
-            fi
+        efibootmgr | grep "ZFSBootMenu" | awk '{print $1}' | sed 's/Boot//;s/\*//' | while read num; do
+            efibootmgr -B -b "$num" 2>/dev/null || true
         done
     fi
 
     # Create backup entry
     log_info "Creating ZFSBootMenu (Backup) entry..."
-    if ! efibootmgr -c -d "$BOOT_DISK" -p "$BOOT_PART" \
+    efibootmgr -c -d "$BOOT_DISK" -p "$BOOT_PART" \
         -L "ZFSBootMenu (Backup)" \
-        -l '\EFI\ZBM\VMLINUZ-BACKUP.EFI' 2>/dev/null; then
-        log_warn "Failed to create backup EFI entry (may need manual configuration)"
-    fi
+        -l '\EFI\ZBM\VMLINUZ-BACKUP.EFI'
 
     # Create main entry
     log_info "Creating ZFSBootMenu entry..."
-    if ! efibootmgr -c -d "$BOOT_DISK" -p "$BOOT_PART" \
+    efibootmgr -c -d "$BOOT_DISK" -p "$BOOT_PART" \
         -L "ZFSBootMenu" \
-        -l '\EFI\ZBM\VMLINUZ.EFI' 2>/dev/null; then
-        log_warn "Failed to create main EFI entry (may need manual configuration)"
-    fi
+        -l '\EFI\ZBM\VMLINUZ.EFI'
 
     # Set boot order
     log_info "Configuring boot order..."
@@ -465,7 +422,6 @@ main() {
     log_info "EFI files:"
     log_info "  /boot/efi/EFI/ZBM/VMLINUZ.EFI"
     log_info "  /boot/efi/EFI/ZBM/VMLINUZ-BACKUP.EFI"
-    log_info "  /boot/efi/EFI/BOOT/BOOTX64.EFI"
     log_info ""
     log_info "EFI Boot entries created for:"
     log_info "  Disk: $BOOT_DISK"

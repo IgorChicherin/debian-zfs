@@ -7,7 +7,7 @@
 #
 # Options:
 #   --pool NAME         ZFS pool name (default: zroot)
-#   --dataset NAME      ROOT dataset (default: ROOT/bookworm)
+#   --dataset NAME      ROOT dataset (default: ROOT/trixie)
 #   --fix               Attempt to fix kernel detection
 #   --help              Show help
 ###############################################################################
@@ -28,7 +28,7 @@ log_step() { echo -e "\n${BLUE}[STEP]${NC} $1"; }
 
 # Parameters
 POOL_NAME="zroot"
-ROOT_DATASET="ROOT/bookworm"
+ROOT_DATASET="ROOT/trixie"
 FIX_MODE=false
 
 # Argument parsing
@@ -62,6 +62,11 @@ if ! zfs list "$POOL_NAME/$ROOT_DATASET" &>/dev/null; then
     exit 1
 fi
 
+# Save original dataset properties/state
+ORIG_MOUNTPOINT=$(zfs get -H -o value mountpoint "$POOL_NAME/$ROOT_DATASET")
+ORIG_CANMOUNT=$(zfs get -H -o value canmount "$POOL_NAME/$ROOT_DATASET")
+ORIG_MOUNTED=$(zfs get -H -o value mounted "$POOL_NAME/$ROOT_DATASET")
+
 # Mount dataset temporarily
 MOUNT_POINT=$(mktemp -d)
 log_info "Mounting dataset to $MOUNT_POINT..."
@@ -84,16 +89,18 @@ if [ "$KERNEL_COUNT" -eq 0 ] || [ "$INITRD_COUNT" -eq 0 ]; then
     if [ "$FIX_MODE" = true ]; then
         log_step "Attempting to fix..."
         
-        # Check if we can reinstall kernel
-        log_info "Checking if we can access apt..."
-        if command -v apt &>/dev/null; then
-            log_info "Reinstalling kernel..."
-            apt update
-            apt install --reinstall -y linux-image-amd64
-            
-            # Regenerate initramfs
-            log_info "Regenerating initramfs..."
-            update-initramfs -c -k all
+        # Reinstall kernel inside target root (not live environment)
+        if [ -f "$MOUNT_POINT/etc/debian_version" ]; then
+            log_info "Reinstalling kernel inside target root..."
+            mount --bind /dev "$MOUNT_POINT/dev"
+            mount --bind /proc "$MOUNT_POINT/proc"
+            mount --bind /sys "$MOUNT_POINT/sys"
+
+            chroot "$MOUNT_POINT" /bin/bash -lc 'apt update && apt install --reinstall -y linux-image-amd64 zfs-initramfs zfsutils-linux && update-initramfs -c -k all' || true
+
+            umount "$MOUNT_POINT/sys" 2>/dev/null || true
+            umount "$MOUNT_POINT/proc" 2>/dev/null || true
+            umount "$MOUNT_POINT/dev" 2>/dev/null || true
             
             KERNEL_COUNT=$(find "$MOUNT_POINT/boot" -name "vmlinuz-*" 2>/dev/null | wc -l)
             INITRD_COUNT=$(find "$MOUNT_POINT/boot" -name "initrd.img-*" 2>/dev/null | wc -l)
@@ -123,8 +130,30 @@ else
     # Check ZFSBootMenu properties
     log_step "Checking ZFSBootMenu properties"
     
+    bootfs=$(zpool get -H -o value bootfs "$POOL_NAME" 2>/dev/null || echo "-")
+    mountpoint=$(zfs get -H -o value mountpoint "$POOL_NAME/$ROOT_DATASET" 2>/dev/null || echo "-")
+    canmount=$(zfs get -H -o value canmount "$POOL_NAME/$ROOT_DATASET" 2>/dev/null || echo "-")
     cmdline=$(zfs get -H -o value org.zfsbootmenu:commandline "$POOL_NAME/$ROOT_DATASET" 2>/dev/null || echo "not set")
+
+    log_info "bootfs: $bootfs"
+    log_info "mountpoint: $mountpoint"
+    log_info "canmount: $canmount"
     log_info "org.zfsbootmenu:commandline: $cmdline"
+
+    if [ "$bootfs" != "$POOL_NAME/$ROOT_DATASET" ]; then
+        log_warn "bootfs points to $bootfs, fixing..."
+        zpool set bootfs="$POOL_NAME/$ROOT_DATASET" "$POOL_NAME"
+    fi
+
+    if [ "$mountpoint" != "/" ]; then
+        log_warn "mountpoint is $mountpoint, fixing to /..."
+        zfs set mountpoint=/ "$POOL_NAME/$ROOT_DATASET"
+    fi
+
+    if [ "$canmount" != "noauto" ]; then
+        log_warn "canmount is $canmount, fixing to noauto..."
+        zfs set canmount=noauto "$POOL_NAME/$ROOT_DATASET"
+    fi
     
     if [ "$cmdline" = "-" ] || [ "$cmdline" = "not set" ]; then
         log_warn "commandline property not set!"
@@ -133,10 +162,13 @@ else
     fi
 fi
 
-# Unmount
+# Unmount/restore dataset properties
 log_info "Unmounting dataset..."
-zfs unmount "$POOL_NAME/$ROOT_DATASET"
-zfs set mountpoint="/" "$POOL_NAME/$ROOT_DATASET"
+if [ "$ORIG_MOUNTED" != "yes" ]; then
+    zfs unmount "$POOL_NAME/$ROOT_DATASET" 2>/dev/null || true
+fi
+zfs set mountpoint="$ORIG_MOUNTPOINT" "$POOL_NAME/$ROOT_DATASET"
+zfs set canmount="$ORIG_CANMOUNT" "$POOL_NAME/$ROOT_DATASET"
 rmdir "$MOUNT_POINT"
 
 log_step "Check completed"

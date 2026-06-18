@@ -211,7 +211,7 @@ create_config() {
         read -p "Overwrite? (yes/no): " confirm
         if [ "$confirm" != "yes" ]; then
             log_info "Cancelled"
-            return 0
+            exit 0
         fi
     fi
 
@@ -258,7 +258,7 @@ activate_zram() {
         log_error "zram-generator not found!"
         log_info "Make sure systemd-zram-generator is properly installed"
         log_info "Try: dpkg -L systemd-zram-generator"
-        return 1
+        exit 1
     fi
 
     log_info "Found zram-generator at: $generator_path"
@@ -290,11 +290,11 @@ activate_zram() {
     # Start ZRAM
     if [ "$MODE" = "swap" ]; then
         log_info "Starting ZRAM swap..."
-        if ! systemctl start dev-zram0.swap 2>/dev/null; then
+        systemctl start dev-zram0.swap || {
             log_error "Failed to start dev-zram0.swap!"
             log_info "Check logs: journalctl -xeu dev-zram0.swap"
-            return 1
-        fi
+            exit 1
+        }
 
         # Check
         sleep 2
@@ -303,7 +303,7 @@ activate_zram() {
         else
             log_error "Failed to activate ZRAM swap"
             log_info "Check logs: journalctl -xeu dev-zram0.swap"
-            return 1
+            exit 1
         fi
     else
         log_info "For filesystem mode, create mount point:"
@@ -339,27 +339,23 @@ verify_zram() {
 main() {
     log_info "═══════════════════════════════════════════════════════"
     log_info "ZRAM Configuration Script"
-    log_info "Version: 1.1 (April 2026) - Fixed error handling"
+    log_info "Version: 1.0 (April 2026)"
     log_info "═══════════════════════════════════════════════════════"
 
     # Status mode
     if [ "$STATUS_MODE" = true ]; then
         show_status
-        return 0
     fi
 
     # Removal mode
     if [ "$REMOVE_MODE" = true ]; then
         remove_config
-        return $?
     fi
 
-    # Main installation (with error handling)
-    install_packages || return 1
-    create_config || return 1
-    activate_zram || {
-        log_warn "ZRAM activation had issues - check logs"
-    }
+    # Main installation
+    install_packages
+    create_config
+    activate_zram
     verify_zram
 
     log_info ""

@@ -1,12 +1,25 @@
 #!/bin/bash
 ###############################################################################
-# zfs-install.sh — Automated Debian Bookworm installation on ZFS root
+# zfs-install.sh — Automated Debian Trixie installation on ZFS root
 #
 # Usage:
 #   sudo bash zfs-install.sh --disk /dev/sda [OPTIONS]
+#   sudo bash zfs-install.sh --use-existing-pool
+#   sudo bash zfs-install.sh --interactive
 #
-# Options:
-#   --disk DISK         Installation disk (required)
+# Installation Modes:
+#   1. Fresh installation on disk:
+#      --disk DISK         Installation disk (required)
+#   
+#   2. Use existing ZFS pool + EFI:
+#      --use-existing-pool  Interactive selection of existing pool and EFI
+#      --pool POOL_NAME     Use specific ZFS pool
+#      --efi-device DEV     Use specific EFI partition
+#   
+#   3. Interactive mode (wizard):
+#      --interactive        Guide through all options step-by-step
+#
+# Common Options:
 #   --use-free-space    Install alongside Windows using existing free GPT space
 #   --efi-part NUM      Reuse existing EFI partition number (auto-detect by default)
 #   --encrypt           Enable ZFS native encryption
@@ -18,16 +31,25 @@
 #   --help              Show this help
 #
 # Examples:
-#   # Without encryption
+#   # Fresh install on single disk
 #   sudo bash zfs-install.sh --disk /dev/sda
+#
+#   # Fresh install on Intel RST RAID 0 (2x NVMe)
+#   sudo bash zfs-install.sh --disk /dev/md127
+#
+#   # Use existing ZFS pool interactively
+#   sudo bash zfs-install.sh --use-existing-pool
+#
+#   # Use specific existing pool and EFI
+#   sudo bash zfs-install.sh --pool zroot --efi-device /dev/sda1
+#
+#   # Interactive wizard (recommended for beginners)
+#   sudo bash zfs-install.sh --interactive
 #
 #   # With encryption
 #   sudo bash zfs-install.sh --disk /dev/sda --encrypt --passphrase "MySecurePass"
 #
-#   # Custom hostname
-#   sudo bash zfs-install.sh --disk /dev/nvme0n1 --hostname nas-server
-#
-#   # Install next to Windows into existing free space
+#   # Install next to Windows
 #   sudo bash zfs-install.sh --disk /dev/nvme0n1 --use-free-space
 ###############################################################################
 
@@ -57,6 +79,269 @@ log_step() {
     echo -e "\n${BLUE}[STEP]${NC} $1"
 }
 
+###############################################################################
+# RAID Detection and Validation Functions
+###############################################################################
+
+detect_raid_array() {
+    local disk="$1"
+    
+    # Check if it's a software RAID device (mdadm)
+    if [[ "$disk" == /dev/md* ]]; then
+        log_info "Detected mdadm RAID array: $disk"
+        cat "$disk" 2>/dev/null || true
+        return 0
+    fi
+    
+    # Check if it's a device mapper device (Intel RST RAID)
+    if [[ "$disk" == /dev/dm-* ]] || [[ "$disk" == /dev/mapper/* ]]; then
+        log_info "Detected device-mapper (Intel RST RAID) device: $disk"
+        return 0
+    fi
+    
+    # Check if underlying devices are in a RAID array
+    if command -v mdadm &> /dev/null; then
+        local md_arrays
+        md_arrays=$(mdadm --detail --scan 2>/dev/null | grep -c ARRAY || true)
+        if [ "$md_arrays" -gt 0 ]; then
+            log_warn "Active mdadm RAID arrays detected on system"
+            mdadm --detail --scan 2>/dev/null || true
+        fi
+    fi
+}
+
+validate_disk_for_installation() {
+    local disk="$1"
+    
+    # Check if disk is already part of a ZFS pool
+    if command -v zpool &> /dev/null; then
+        if zpool status "$disk" &>/dev/null 2>&1; then
+            log_error "Disk $disk is already part of a ZFS pool!"
+            log_info "Run 'zpool status' to see pool information"
+            return 1
+        fi
+    fi
+    
+    # Check if disk is part of mdadm RAID array (if using non-RAID disk)
+    if [[ "$disk" != /dev/md* && "$disk" != /dev/dm-* && "$disk" != /dev/mapper/* ]]; then
+        if command -v mdadm &> /dev/null; then
+            local is_in_raid
+            is_in_raid=$(mdadm --examine "$disk" 2>/dev/null | grep -c "MD Bitmap" || echo 0)
+            if [ "$is_in_raid" -gt 0 ]; then
+                log_error "Disk $disk appears to be part of an mdadm RAID array!"
+                log_warn "This would destroy your RAID array!"
+                log_info "If you want to install on a RAID array, use the RAID device:"
+                mdadm --detail --scan 2>/dev/null || true
+                return 1
+            fi
+        fi
+    fi
+    
+    return 0
+}
+
+show_raid_info() {
+    log_info ""
+    log_info "RAID/Device Configuration:"
+    log_info "  Current disk: $DISK"
+    
+    if [[ "$DISK" == /dev/md* ]]; then
+        log_info "  Type: mdadm software RAID"
+        if command -v mdadm &> /dev/null; then
+            log_info "  Details:"
+            mdadm --detail "$DISK" 2>/dev/null | sed 's/^/    /'
+        fi
+    elif [[ "$DISK" == /dev/dm-* || "$DISK" == /dev/mapper/* ]]; then
+        log_info "  Type: Device Mapper (Intel RST RAID or LVM)"
+        if command -v dmsetup &> /dev/null; then
+            log_info "  Details:"
+            dmsetup info "$DISK" 2>/dev/null | sed 's/^/    /'
+        fi
+    else
+        log_info "  Type: Direct attached disk (NVMe, SATA, etc.)"
+    fi
+    log_info ""
+}
+
+###############################################################################
+# Existing Pool/EFI Selection Functions
+###############################################################################
+
+list_zfs_pools() {
+    log_info "Available ZFS pools:"
+    if ! zpool list -H -o name 2>/dev/null; then
+        log_error "No ZFS pools found!"
+        return 1
+    fi
+}
+
+select_zfs_pool() {
+    log_step "Select ZFS Pool"
+    
+    local pools
+    pools=$(zpool list -H -o name 2>/dev/null || true)
+    
+    if [ -z "$pools" ]; then
+        log_error "No ZFS pools available!"
+        log_info "Create a pool first: zpool create -f poolname /dev/xxx"
+        return 1
+    fi
+    
+    echo ""
+    log_info "Available pools:"
+    local count=0
+    declare -a pool_array
+    while IFS= read -r pool; do
+        ((count++))
+        pool_array[$count]="$pool"
+        log_info "  $count) $pool"
+    done <<< "$pools"
+    
+    echo ""
+    read -p "Select pool (1-$count): " pool_choice
+    
+    if [ -z "$pool_choice" ] || [ "$pool_choice" -lt 1 ] || [ "$pool_choice" -gt $count ]; then
+        log_error "Invalid selection"
+        return 1
+    fi
+    
+    POOL_NAME="${pool_array[$pool_choice]}"
+    log_info "Selected pool: $POOL_NAME"
+}
+
+select_efi_partition() {
+    log_step "Select EFI System Partition"
+    
+    log_info "Available EFI partitions:"
+    local count=0
+    declare -a efi_array
+    
+    # Find EFI partitions
+    while IFS= read -r part; do
+        ((count++))
+        efi_array[$count]="$part"
+        local size
+        size=$(lsblk -dn -o SIZE "$part" 2>/dev/null || echo "unknown")
+        log_info "  $count) $part ($size)"
+    done < <(sudo fdisk -l 2>/dev/null | grep "EFI" | awk '{print $1}' || true)
+    
+    if [ "$count" -eq 0 ]; then
+        log_warn "No EFI partitions found automatically"
+        log_info "Enter EFI partition path manually (e.g., /dev/sda1):"
+        read -p "EFI partition: " EFI_DEVICE
+        
+        if [ ! -b "$EFI_DEVICE" ]; then
+            log_error "Invalid EFI partition: $EFI_DEVICE"
+            return 1
+        fi
+    else
+        echo ""
+        read -p "Select EFI partition (1-$count, or 'c' for custom): " efi_choice
+        
+        if [ "$efi_choice" = "c" ]; then
+            log_info "Enter EFI partition path manually (e.g., /dev/sda1):"
+            read -p "EFI partition: " EFI_DEVICE
+            
+            if [ ! -b "$EFI_DEVICE" ]; then
+                log_error "Invalid EFI partition: $EFI_DEVICE"
+                return 1
+            fi
+        elif [ -z "$efi_choice" ] || [ "$efi_choice" -lt 1 ] || [ "$efi_choice" -gt $count ]; then
+            log_error "Invalid selection"
+            return 1
+        else
+            EFI_DEVICE="${efi_array[$efi_choice]}"
+        fi
+    fi
+    
+    log_info "Selected EFI partition: $EFI_DEVICE"
+}
+
+interactive_mode_setup() {
+    log_step "Debian ZFS Installation - Interactive Wizard"
+    
+    echo ""
+    log_info "This wizard will guide you through the installation process."
+    
+    # Step 1: Choose installation mode
+    log_step "Step 1: Installation Mode"
+    log_info "How do you want to install?"
+    log_info "  1) Fresh install on a disk"
+    log_info "  2) Use existing ZFS pool"
+    
+    read -p "Choose (1 or 2): " mode_choice
+    
+    if [ "$mode_choice" = "2" ]; then
+        MODE="existing"
+        USE_EXISTING_POOL=true
+    else
+        MODE="disk"
+    fi
+    
+    # Step 2: Get hostname
+    log_step "Step 2: Hostname"
+    read -p "Hostname [debian-zfs]: " user_hostname
+    HOSTNAME="${user_hostname:-debian-zfs}"
+    
+    # Step 3: Get root password
+    log_step "Step 3: Root Password"
+    read -s -p "Root password [root]: " user_password
+    ROOT_PASSWORD="${user_password:-root}"
+    echo ""
+    
+    # Step 4: Encryption
+    log_step "Step 4: ZFS Encryption"
+    read -p "Enable ZFS encryption? (y/n) [n]: " use_encrypt
+    if [ "$use_encrypt" = "y" ]; then
+        ENCRYPT=true
+        read -s -p "Encryption passphrase: " PASSPHRASE
+        echo ""
+    fi
+    
+    # Step 5: Disk/Pool selection
+    if [ "$MODE" = "disk" ]; then
+        log_step "Step 5: Select Disk"
+        log_info "Available disks:"
+        lsblk -dn -o NAME,SIZE,TYPE
+        echo ""
+        read -p "Disk path (e.g., /dev/sda, /dev/nvme0n1): " DISK
+        
+        if [ ! -b "$DISK" ]; then
+            log_error "Invalid disk: $DISK"
+            return 1
+        fi
+    else
+        log_step "Step 5: Select ZFS Pool and EFI"
+        if ! select_zfs_pool; then
+            return 1
+        fi
+        if ! select_efi_partition; then
+            return 1
+        fi
+    fi
+    
+    # Summary
+    log_step "Summary"
+    echo ""
+    log_info "Configuration:"
+    log_info "  Mode: $MODE"
+    log_info "  Hostname: $HOSTNAME"
+    log_info "  Encryption: $ENCRYPT"
+    if [ "$MODE" = "disk" ]; then
+        log_info "  Disk: $DISK"
+    else
+        log_info "  Pool: $POOL_NAME"
+        log_info "  EFI: $EFI_DEVICE"
+    fi
+    echo ""
+    
+    read -p "Proceed with installation? (yes/no): " confirm
+    if [ "$confirm" != "yes" ]; then
+        log_info "Installation cancelled"
+        exit 0
+    fi
+}
+
 # Default parameters
 DISK=""
 ENCRYPT=false
@@ -70,7 +355,13 @@ BOOT_PART=1
 POOL_PART=2
 BOOT_SIZE="+512M"
 EFI_PART=""
+EFI_DEVICE=""
 MIN_FREE_SPACE_GIB=20
+
+# Installation modes
+MODE="disk"  # disk, existing, or interactive
+USE_EXISTING_POOL=false
+INTERACTIVE_MODE=false
 
 # Help function
 show_help() {
@@ -83,7 +374,27 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --disk)
             DISK="$2"
+            MODE="disk"
             shift 2
+            ;;
+        --use-existing-pool)
+            USE_EXISTING_POOL=true
+            MODE="existing"
+            shift
+            ;;
+        --pool)
+            POOL_NAME="$2"
+            MODE="existing"
+            shift 2
+            ;;
+        --efi-device)
+            EFI_DEVICE="$2"
+            shift 2
+            ;;
+        --interactive)
+            INTERACTIVE_MODE=true
+            MODE="interactive"
+            shift
             ;;
         --encrypt)
             ENCRYPT=true
@@ -127,10 +438,33 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Check required parameters
-if [ -z "$DISK" ]; then
-    log_error "Parameter --disk is required!"
+# Check required parameters based on mode
+# Interactive mode handles parameter collection
+if [ "$INTERACTIVE_MODE" = true ]; then
+    interactive_mode_setup
+fi
+
+# Mode validation
+if [ "$MODE" = "disk" ] && [ -z "$DISK" ]; then
+    log_error "Parameter --disk is required for disk mode!"
+    log_info "Or use --use-existing-pool, --pool, or --interactive"
     show_help
+fi
+
+if [ "$MODE" = "existing" ]; then
+    if [ "$USE_EXISTING_POOL" = true ] && [ -z "$POOL_NAME" ] && [ -z "$EFI_DEVICE" ]; then
+        log_info "Interactive pool/EFI selection mode"
+        if ! select_zfs_pool; then
+            exit 1
+        fi
+        if ! select_efi_partition; then
+            exit 1
+        fi
+    elif [ -z "$POOL_NAME" ] || [ -z "$EFI_DEVICE" ]; then
+        log_error "Existing pool mode requires --pool and --efi-device!"
+        log_info "Example: --pool zroot --efi-device /dev/sda1"
+        show_help
+    fi
 fi
 
 # Check root privileges
@@ -139,20 +473,51 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-# Check if disk exists
-if [ ! -b "$DISK" ]; then
-    log_error "Disk $DISK not found!"
-    log_info "Available disks:"
-    lsblk -dn -o NAME,SIZE,TYPE,MOUNTPOINT 2>/dev/null || fdisk -l 2>/dev/null | grep "Disk /dev"
-    exit 1
+# Validate disk/pool exists (only for disk mode)
+if [ "$MODE" = "disk" ]; then
+    if [ ! -b "$DISK" ]; then
+        log_error "Disk $DISK not found!"
+        log_info "Available disks:"
+        lsblk -dn -o NAME,SIZE,TYPE,MOUNTPOINT 2>/dev/null || fdisk -l 2>/dev/null | grep "Disk /dev"
+        exit 1
+    fi
+
+    # Detect and validate RAID configuration
+    log_info "Detecting RAID/device configuration..."
+    detect_raid_array "$DISK"
+
+    # Validate disk is safe to use
+    if ! validate_disk_for_installation "$DISK"; then
+        exit 1
+    fi
+fi
+
+# Validate existing pool/EFI (for existing mode)
+if [ "$MODE" = "existing" ]; then
+    if ! zpool list "$POOL_NAME" &>/dev/null; then
+        log_error "ZFS pool $POOL_NAME not found!"
+        log_info "Available pools:"
+        zpool list
+        exit 1
+    fi
+    
+    if [ ! -b "$EFI_DEVICE" ]; then
+        log_error "EFI device $EFI_DEVICE not found!"
+        exit 1
+    fi
+    
+    log_info "Validating existing pool and EFI..."
+    log_info "  Pool: $POOL_NAME"
+    log_info "  EFI: $EFI_DEVICE"
 fi
 
 # Variables
 MOUNT_POINT="/mnt"
-DEBIAN_RELEASE="bookworm"
+DEBIAN_RELEASE="trixie"
 
 BOOT_DEVICE=""
 POOL_DEVICE=""
+POOL_DATASET=""
 
 ###############################################################################
 # Functions
@@ -170,6 +535,19 @@ partition_device() {
     local disk="$1"
     local part="$2"
 
+    # Support for mdadm RAID devices
+    if [[ "$disk" == /dev/md* ]]; then
+        echo "${disk}p${part}"
+        return 0
+    fi
+    
+    # Support for device mapper (Intel RST, LVM, etc.)
+    if [[ "$disk" == /dev/dm-* ]] || [[ "$disk" == /dev/mapper/* ]]; then
+        echo "${disk}p${part}"
+        return 0
+    fi
+
+    # Original logic for standard disks
     if [[ "$disk" == *nvme* ]] || [[ "$disk" == *mmcblk* ]]; then
         echo "${disk}p${part}"
     else
@@ -303,23 +681,32 @@ resolve_install_layout() {
 install_packages() {
     log_step "Installing required packages"
 
-    log_info "Adding bookworm-backports repository..."
+    log_info "Adding trixie-backports repository..."
     # Add backports repository
-    if ! grep -q "bookworm-backports" /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
-        echo "deb http://deb.debian.org/debian bookworm-backports main non-free-firmware contrib" >> /etc/apt/sources.list
+    if ! grep -q "trixie-backports" /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
+        echo "deb http://deb.debian.org/debian trixie-backports main non-free-firmware contrib" >> /etc/apt/sources.list
     fi
 
     run_cmd apt update
     
-    # Install ZFS packages from backports
-    log_info "Installing ZFS packages from backports..."
-    run_cmd apt install -y -t bookworm-backports \
+    # Remove conflicting old ZFS packages/libraries
+    log_info "Removing conflicting ZFS packages..."
+    run_cmd apt remove -y \
         zfsutils-linux \
         zfs-initramfs \
-        libnvpair3linux \
-        libuutil3linux \
+        zfs-dkms \
         libzfs6linux \
-        libzpool6linux
+        libzpool6linux \
+        libuutil3linux \
+        libnvpair3linux \
+        2>/dev/null || true
+    
+    # Install ZFS packages from backports (use latest available)
+    log_info "Installing ZFS packages from backports..."
+    run_cmd apt install -y -t trixie-backports \
+        zfsutils-linux \
+        zfs-initramfs \
+        zfs-dkms
 
     # Install other required packages
     log_info "Installing other required packages..."
@@ -411,6 +798,25 @@ create_zfs_pool() {
     run_cmd zpool status "$POOL_NAME"
 }
 
+ensure_boot_environment_properties() {
+    local be_dataset="$1"
+
+    log_info "Ensuring boot environment properties on $be_dataset..."
+
+    # Required for ZFSBootMenu BE discovery
+    run_cmd zfs set mountpoint=/ "$be_dataset"
+    run_cmd zfs set canmount=noauto "$be_dataset"
+    run_cmd zpool set bootfs="$be_dataset" "$POOL_NAME"
+    run_cmd zfs set org.zfsbootmenu:commandline="quiet loglevel=0" "$be_dataset"
+
+    # Required for encrypted pools
+    local encryption
+    encryption=$(zfs get -H -o value encryption "$be_dataset" 2>/dev/null || echo "off")
+    if [ "$ENCRYPT" = true ] || [ "$encryption" != "off" ]; then
+        run_cmd zfs set org.zfsbootmenu:keysource="$be_dataset" "$POOL_NAME"
+    fi
+}
+
 create_datasets() {
     log_step "Creating ZFS datasets"
 
@@ -431,19 +837,9 @@ create_datasets() {
     log_info "Creating zroot/var-log..."
     run_cmd zfs create -o mountpoint=/var/log ${POOL_NAME}/var-log
 
-    # Set bootfs
-    log_info "Setting bootfs..."
-    run_cmd zpool set bootfs=${POOL_NAME}/ROOT/${DEBIAN_RELEASE} "$POOL_NAME"
-
-    # Properties for ZFSBootMenu
-    log_info "Configuring ZFSBootMenu properties..."
-    run_cmd zfs set org.zfsbootmenu:commandline="quiet loglevel=0" \
-        ${POOL_NAME}/ROOT/${DEBIAN_RELEASE}
-
-    if [ "$ENCRYPT" = true ]; then
-        run_cmd zfs set org.zfsbootmenu:keysource="${POOL_NAME}/ROOT/${DEBIAN_RELEASE}" \
-            ${POOL_NAME}
-    fi
+    # Properties for ZFSBootMenu + BE discovery
+    log_info "Configuring boot environment properties..."
+    ensure_boot_environment_properties "${POOL_NAME}/ROOT/${DEBIAN_RELEASE}"
 
     log_info "Datasets created:"
     run_cmd zfs list
@@ -530,7 +926,7 @@ configure_chroot() {
 set -e
 
 export DEBIAN_FRONTEND=noninteractive
-DEBIAN_RELEASE="bookworm"
+DEBIAN_RELEASE="trixie"
 HOSTNAME_VAR="__HOSTNAME__"
 ROOT_PASSWORD_VAR="__ROOT_PASSWORD__"
 ENCRYPT_VAR="__ENCRYPT__"
@@ -562,15 +958,21 @@ update-locale LANG=en_US.UTF-8
 
 # Install kernel and ZFS
 log_info "Installing kernel and ZFS packages from backports..."
-apt install -y -t bookworm-backports \
+apt remove -y \
+    zfsutils-linux \
+    zfs-initramfs \
+    zfs-dkms \
+    libzfs6linux \
+    libzpool6linux \
+    libuutil3linux \
+    libnvpair3linux \
+    2>/dev/null || true
+apt install -y -t trixie-backports \
     linux-headers-amd64 \
     linux-image-amd64 \
     zfs-initramfs \
     zfsutils-linux \
-    libnvpair3linux \
-    libuutil3linux \
-    libzfs6linux \
-    libzpool6linux || {
+    zfs-dkms || {
     log_error "Failed to install kernel and ZFS packages!"
     log_info "Trying without backports..."
     apt install -y \
@@ -662,14 +1064,18 @@ echo "root:$ROOT_PASSWORD_VAR" | chpasswd
 log_info "Chroot configuration completed"
 CHROOT_SCRIPT
 
-    # Replace variables
-    sed -i "s/__HOSTNAME__/$HOSTNAME/g" "$chroot_script"
-    sed -i "s/__ROOT_PASSWORD__/$ROOT_PASSWORD/g" "$chroot_script"
-    sed -i "s/__ENCRYPT__/$ENCRYPT/g" "$chroot_script"
-    sed -i "s/__POOL_NAME__/$POOL_NAME/g" "$chroot_script"
+    # Replace variables using safe method (fixes security issue with unescaped variables)
+    local temp_script="/tmp/chroot-setup-${RANDOM}.sh"
+    sed -e "s|__HOSTNAME__|$(printf '%s\n' "$HOSTNAME" | sed -e 's/[\/&]/\\&/g')|g" \
+        -e "s|__POOL_NAME__|$(printf '%s\n' "$POOL_NAME" | sed -e 's/[\/&]/\\&/g')|g" \
+        -e "s|__ENCRYPT__|$ENCRYPT|g" \
+        "$chroot_script" > "$temp_script"
+    
+    # Handle password separately with special care (never log this)
+    sed -i "s|__ROOT_PASSWORD__|$(printf '%s\n' "$ROOT_PASSWORD" | sed -e 's/[\/&]/\\&/g')|g" "$temp_script"
 
     # Copy and execute
-    run_cmd cp "$chroot_script" "$MOUNT_POINT/tmp/chroot-setup.sh"
+    run_cmd cp "$temp_script" "$MOUNT_POINT/tmp/chroot-setup.sh"
     run_cmd chmod +x "$MOUNT_POINT/tmp/chroot-setup.sh"
 
     log_info "Running chroot configuration..."
@@ -678,6 +1084,7 @@ CHROOT_SCRIPT
     # Cleanup
     run_cmd rm "$MOUNT_POINT/tmp/chroot-setup.sh"
     rm "$chroot_script"
+    rm "$temp_script"
 }
 
 setup_efi() {
@@ -691,9 +1098,17 @@ setup_efi() {
         run_cmd mkfs.vfat -F32 "$BOOT_DEVICE"
     fi
 
-    # Get UUID
+    # Get UUID (fixes issue with DRY-RUN prefix)
     local BOOT_UUID
-    BOOT_UUID=$(run_cmd blkid -s UUID -o value "$BOOT_DEVICE")
+    if [ "$DRY_RUN" = true ]; then
+        log_warn "DRY-RUN: Would get UUID from $BOOT_DEVICE"
+        BOOT_UUID="00000000-0000-0000-0000-000000000000"
+    else
+        BOOT_UUID=$(blkid -s UUID -o value "$BOOT_DEVICE") || {
+            log_error "Failed to get UUID from $BOOT_DEVICE"
+            return 1
+        }
+    fi
 
     # Create fstab
     log_info "Configuring /etc/fstab..."
@@ -722,45 +1137,120 @@ install_zfsbootmenu() {
     
     # Get latest release URL
     local ZBM_URL="https://github.com/zbm-dev/zfsbootmenu/releases/latest/download/VMLINUZ.EFI"
+    local download_success=false
     
-    run_cmd chroot "$MOUNT_POINT" curl -fSL -o /boot/efi/EFI/ZBM/VMLINUZ.EFI \
-        "$ZBM_URL" || {
-        log_error "Failed to download ZFSBootMenu EFI binary!"
-        log_info "Trying alternative URL..."
-        
-        # Fallback URL
-        run_cmd chroot "$MOUNT_POINT" curl -fSL -o /boot/efi/EFI/ZBM/VMLINUZ.EFI \
-            "https://get.zfsbootmenu.org/efi" || {
-            log_error "All download methods failed!"
-            log_warn "You may need to manually download VMLINUZ.EFI"
-            log_warn "Place it at: $MOUNT_POINT/boot/efi/EFI/ZBM/VMLINUZ.EFI"
-            return 1
-        }
-    }
+    # Primary download attempt
+    if run_cmd chroot "$MOUNT_POINT" curl -fSL --connect-timeout 10 -m 300 \
+        -o /boot/efi/EFI/ZBM/VMLINUZ.EFI "$ZBM_URL"; then
+        download_success=true
+    fi
+    
+    # Fallback download attempt
+    if [ "$download_success" = false ]; then
+        log_warn "Primary download failed, trying alternative URL..."
+        if run_cmd chroot "$MOUNT_POINT" curl -fSL --connect-timeout 10 -m 300 \
+            -o /boot/efi/EFI/ZBM/VMLINUZ.EFI "https://get.zfsbootmenu.org/efi"; then
+            download_success=true
+        fi
+    fi
+    
+    # Handle download failure
+    if [ "$download_success" = false ]; then
+        log_error "Failed to download ZFSBootMenu EFI binary from all sources!"
+        log_warn "You can manually download and place it at: $MOUNT_POINT/boot/efi/EFI/ZBM/VMLINUZ.EFI"
+        log_warn "Download from: https://github.com/zbm-dev/zfsbootmenu/releases"
+        return 1
+    fi
 
     # Create backup copy
     log_info "Creating backup copy..."
     run_cmd chroot "$MOUNT_POINT" cp /boot/efi/EFI/ZBM/VMLINUZ.EFI \
         /boot/efi/EFI/ZBM/VMLINUZ-BACKUP.EFI
 
+    # Create UEFI fallback path (many firmware only check EFI/BOOT/BOOTX64.EFI)
+    log_info "Creating UEFI fallback boot path..."
+    run_cmd chroot "$MOUNT_POINT" mkdir -p /boot/efi/EFI/BOOT
+    run_cmd chroot "$MOUNT_POINT" cp /boot/efi/EFI/ZBM/VMLINUZ.EFI \
+        /boot/efi/EFI/BOOT/BOOTX64.EFI
+
     # Configure EFI boot entries
     log_info "Creating EFI boot entries..."
 
-    # Primary entry
-    run_cmd efibootmgr -c -d "$DISK" -p "$BOOT_PART" \
-        -L "ZFSBootMenu" \
-        -l '\EFI\ZBM\VMLINUZ.EFI' || {
-        log_warn "Failed to create EFI boot entry (may need to be done manually)"
-    }
+    # Derive DISK/BOOT_PART from EFI_DEVICE in existing-pool mode
+    if { [ -z "$DISK" ] || [ -z "${BOOT_PART:-}" ]; } && [ -n "$EFI_DEVICE" ]; then
+        local detected_disk detected_part
+        detected_disk=$(lsblk -no PKNAME "$EFI_DEVICE" 2>/dev/null || true)
+        detected_part=$(lsblk -no PARTN "$EFI_DEVICE" 2>/dev/null || true)
+        if [ -n "$detected_disk" ]; then
+            DISK="/dev/${detected_disk}"
+        fi
+        if [ -n "$detected_part" ]; then
+            BOOT_PART="$detected_part"
+        fi
+    fi
 
-    # Backup entry
-    run_cmd efibootmgr -c -d "$DISK" -p "$BOOT_PART" \
-        -L "ZFSBootMenu (Backup)" \
-        -l '\EFI\ZBM\VMLINUZ-BACKUP.EFI' || {
-        log_warn "Failed to create backup EFI boot entry"
-    }
+    # Primary entry
+    if [ -n "$DISK" ] && [ -n "${BOOT_PART:-}" ]; then
+        run_cmd efibootmgr -c -d "$DISK" -p "$BOOT_PART" \
+            -L "ZFSBootMenu" \
+            -l '\EFI\ZBM\VMLINUZ.EFI' || {
+            log_warn "Failed to create EFI boot entry (may need to be done manually)"
+        }
+
+        # Backup entry
+        run_cmd efibootmgr -c -d "$DISK" -p "$BOOT_PART" \
+            -L "ZFSBootMenu (Backup)" \
+            -l '\EFI\ZBM\VMLINUZ-BACKUP.EFI' || {
+            log_warn "Failed to create backup EFI boot entry"
+        }
+    else
+        log_warn "Could not detect boot disk/partition for efibootmgr entries"
+        log_warn "Fallback EFI path created: \\EFI\\BOOT\\BOOTX64.EFI"
+    fi
 
     log_info "ZFSBootMenu installed and configured"
+}
+
+verify_boot_environment() {
+    log_step "Verifying boot environment"
+
+    if [ "$DRY_RUN" = true ]; then
+        log_warn "DRY-RUN: skipping boot environment verification"
+        return 0
+    fi
+
+    local be_dataset
+    if [ "$MODE" = "existing" ] && [ -n "$POOL_DATASET" ]; then
+        be_dataset="$POOL_DATASET"
+    else
+        be_dataset="${POOL_NAME}/ROOT/${DEBIAN_RELEASE}"
+    fi
+
+    # Re-assert BE properties after chroot setup
+    ensure_boot_environment_properties "$be_dataset"
+
+    local kernel_count initrd_count
+    kernel_count=$(find "$MOUNT_POINT/boot" -maxdepth 1 -name 'vmlinuz-*' 2>/dev/null | wc -l)
+    initrd_count=$(find "$MOUNT_POINT/boot" -maxdepth 1 -name 'initrd.img-*' 2>/dev/null | wc -l)
+    log_info "Kernel files in target root: $kernel_count"
+    log_info "Initrd files in target root: $initrd_count"
+
+    if [ "$kernel_count" -eq 0 ] || [ "$initrd_count" -eq 0 ]; then
+        log_warn "Kernel/initrd missing. Reinstalling in chroot..."
+        run_cmd chroot "$MOUNT_POINT" /bin/bash -lc \
+            'apt update && apt install -y --reinstall linux-image-amd64 zfs-initramfs zfsutils-linux && update-initramfs -c -k all'
+
+        kernel_count=$(find "$MOUNT_POINT/boot" -maxdepth 1 -name 'vmlinuz-*' 2>/dev/null | wc -l)
+        initrd_count=$(find "$MOUNT_POINT/boot" -maxdepth 1 -name 'initrd.img-*' 2>/dev/null | wc -l)
+        log_info "After repair: kernels=$kernel_count, initrds=$initrd_count"
+    fi
+
+    if [ "$kernel_count" -eq 0 ] || [ "$initrd_count" -eq 0 ]; then
+        log_error "No bootable kernel/initrd found in target boot environment"
+        return 1
+    fi
+
+    log_info "Boot environment verification passed"
 }
 
 configure_zram() {
@@ -788,11 +1278,25 @@ finalize() {
 
     # Exit chroot
     log_info "Unmounting filesystems..."
-    run_cmd umount -n -R "$MOUNT_POINT" || true
+    run_cmd umount -lf "$MOUNT_POINT/dev/pts" 2>/dev/null || true
+    run_cmd umount -lf "$MOUNT_POINT/dev" 2>/dev/null || true
+    run_cmd umount -lf "$MOUNT_POINT/proc" 2>/dev/null || true
+    run_cmd umount -lf "$MOUNT_POINT/sys" 2>/dev/null || true
+    run_cmd umount -lf "$MOUNT_POINT/boot/efi" 2>/dev/null || true
+    run_cmd umount -n -R "$MOUNT_POINT" 2>/dev/null || true
 
-    # Export pool
+    # Export pool (retry if busy)
     log_info "Exporting ZFS pool..."
-    run_cmd zpool export "$POOL_NAME" || true
+    if ! run_cmd zpool export "$POOL_NAME" 2>/dev/null; then
+        log_warn "Pool busy, attempting force unmount of pool datasets..."
+        run_cmd zfs unmount -r "$POOL_NAME" 2>/dev/null || true
+        sleep 1
+        run_cmd zpool export "$POOL_NAME" 2>/dev/null || {
+            log_warn "Could not export pool automatically (dataset busy)."
+            log_warn "You can export manually after checking active mounts/processes:"
+            log_warn "  zpool export $POOL_NAME"
+        }
+    fi
 
     log_info ""
     log_warn "═══════════════════════════════════════════════════════"
@@ -823,28 +1327,190 @@ finalize() {
 }
 
 ###############################################################################
+# Existing Pool Installation Mode
+###############################################################################
+
+prepare_existing_pool() {
+    log_step "Preparing existing ZFS pool"
+    
+    log_info "Pool: $POOL_NAME"
+    log_info "EFI partition: $EFI_DEVICE"
+    
+    # Get list of root datasets
+    log_info "Available ROOT datasets in pool $POOL_NAME:"
+    local datasets
+    datasets=$(zfs list -H -o name -r "$POOL_NAME" 2>/dev/null | grep "^${POOL_NAME}/ROOT/" || true)
+    
+    if [ -z "$datasets" ]; then
+        log_error "No ROOT datasets found in pool $POOL_NAME"
+        log_info "Create dataset first: zfs create -o mountpoint=/ $POOL_NAME/ROOT/trixie"
+        return 1
+    fi
+    
+    # Select or use the first one
+    local dataset_count
+    dataset_count=$(echo "$datasets" | wc -l)
+    
+    if [ "$dataset_count" -eq 1 ]; then
+        POOL_DATASET="$datasets"
+        log_info "Using dataset: $POOL_DATASET"
+    else
+        log_info "Multiple ROOT datasets available:"
+        local count=0
+        declare -a dataset_array
+        while IFS= read -r ds; do
+            ((count++))
+            dataset_array[$count]="$ds"
+            log_info "  $count) $ds"
+        done <<< "$datasets"
+        
+        read -p "Select dataset (1-$count): " ds_choice
+        
+        if [ -z "$ds_choice" ] || [ "$ds_choice" -lt 1 ] || [ "$ds_choice" -gt $count ]; then
+            log_error "Invalid selection"
+            return 1
+        fi
+        
+        POOL_DATASET="${dataset_array[$ds_choice]}"
+        log_info "Selected dataset: $POOL_DATASET"
+    fi
+    
+    # Extract dataset for later use
+    DEBIAN_RELEASE=$(echo "$POOL_DATASET" | sed "s|^${POOL_NAME}/ROOT/||")
+
+    # Existing dataset may miss BE props; enforce for ZFSBootMenu
+    ensure_boot_environment_properties "$POOL_DATASET"
+    
+    # Mount the dataset
+    log_info "Mounting pool dataset..."
+    run_cmd zpool export "$POOL_NAME" 2>/dev/null || true
+    
+    log_info "Importing pool with mountpoint=$MOUNT_POINT..."
+    run_cmd zpool import -N -R "$MOUNT_POINT" "$POOL_NAME"
+    
+    # For encryption need to load key
+    if [ "$ENCRYPT" = true ]; then
+        log_info "Loading encryption key..."
+        read -s -p "Enter ZFS encryption passphrase: " key_pass
+        echo "$key_pass" | run_cmd zfs load-key -L prompt "$POOL_DATASET" || {
+            log_error "Failed to load encryption key"
+            return 1
+        }
+    fi
+    
+    # Mount datasets
+    log_info "Mounting dataset..."
+    run_cmd zfs mount "$POOL_DATASET"
+    
+    log_info "Mounted filesystems:"
+    run_cmd mount | grep "$MOUNT_POINT" || true
+}
+
+install_on_existing_pool() {
+    log_step "Installing Debian on existing ZFS pool"
+    
+    prepare_existing_pool || return 1
+    install_debian
+    prepare_chroot
+    configure_chroot
+    verify_boot_environment
+    setup_efi_existing
+    install_zfsbootmenu
+    configure_zram
+    finalize
+}
+
+setup_efi_existing() {
+    log_step "Configuring EFI System Partition (existing)"
+    
+    # Verify EFI partition
+    log_info "Verifying EFI partition: $EFI_DEVICE"
+    
+    # Get UUID
+    local BOOT_UUID
+    if [ "$DRY_RUN" = true ]; then
+        log_warn "DRY-RUN: Would get UUID from $EFI_DEVICE"
+        BOOT_UUID="00000000-0000-0000-0000-000000000000"
+    else
+        BOOT_UUID=$(blkid -s UUID -o value "$EFI_DEVICE") || {
+            log_error "Failed to get UUID from $EFI_DEVICE"
+            return 1
+        }
+    fi
+    
+    # Create fstab entry
+    log_info "Configuring /etc/fstab..."
+    cat > "$MOUNT_POINT/etc/fstab" << EOF
+# EFI System Partition
+UUID=${BOOT_UUID}  /boot/efi  vfat  defaults  0  0
+EOF
+    
+    # Mount EFI
+    log_info "Mounting EFI partition..."
+    run_cmd mkdir -p "$MOUNT_POINT/boot/efi"
+    run_cmd chroot "$MOUNT_POINT" mount /boot/efi
+    
+    log_info "EFI partition configured"
+}
+
+###############################################################################
 # Main process
 ###############################################################################
 
 main() {
     log_info "═══════════════════════════════════════════════════════"
-    log_info "Debian Bookworm ZFS Root Installation Script"
-    log_info "Version: 1.0 (April 2026)"
+    log_info "Debian Trixie ZFS Root Installation Script"
+    log_info "Version: 2.1 (April 2026) - With Existing Pool Support"
     log_info "═══════════════════════════════════════════════════════"
 
-    resolve_install_layout
-    install_packages
-    prepare_disk
-    create_zfs_pool
-    create_datasets
-    mount_datasets
-    install_debian
-    prepare_chroot
-    configure_chroot
-    setup_efi
-    install_zfsbootmenu
-    configure_zram
-    finalize
+    # Route to appropriate installation mode
+    case "$MODE" in
+        disk)
+            show_raid_info
+            resolve_install_layout
+            install_packages
+            prepare_disk
+            create_zfs_pool
+            create_datasets
+            mount_datasets
+            install_debian
+            prepare_chroot
+            configure_chroot
+            verify_boot_environment
+            setup_efi
+            install_zfsbootmenu
+            configure_zram
+            finalize
+            ;;
+        existing)
+            log_info "Using existing ZFS pool: $POOL_NAME"
+            log_info "EFI partition: $EFI_DEVICE"
+            
+            install_on_existing_pool
+            ;;
+        interactive)
+            # Handled by interactive_mode_setup, then falls through to disk mode
+            show_raid_info
+            resolve_install_layout
+            install_packages
+            prepare_disk
+            create_zfs_pool
+            create_datasets
+            mount_datasets
+            install_debian
+            prepare_chroot
+            configure_chroot
+            verify_boot_environment
+            setup_efi
+            install_zfsbootmenu
+            configure_zram
+            finalize
+            ;;
+        *)
+            log_error "Unknown installation mode: $MODE"
+            exit 1
+            ;;
+    esac
 }
 
 # Run

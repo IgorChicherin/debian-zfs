@@ -131,11 +131,11 @@ bash scripts/test-vm.sh --disk /dev/sdX
 
 | Package | Version | Source |
 |---------|---------|--------|
-| zfsutils-linux | 2.3.2+ (backports) | bookworm-backports |
-| zfs-initramfs | 2.3.2+ (backports) | bookworm-backports |
+| zfsutils-linux | 2.3.2+ (backports) | trixie-backports |
+| zfs-initramfs | 2.3.2+ (backports) | trixie-backports |
 | ZFSBootMenu | 3.1.x | get.zfsbootmenu.org |
-| systemd-zram-generator | 1.1.2+ | bookworm |
-| linux-image-amd64 | 6.1.x LTS | bookworm |
+| systemd-zram-generator | 1.1.2+ | trixie |
+| linux-image-amd64 | 6.1.x LTS | trixie |
 
 ## ⚠️ Important Notes
 
@@ -146,7 +146,7 @@ bash scripts/test-vm.sh --disk /dev/sdX
 5. **Windows dual-boot mode requires GPT free space** — shrink the Windows partition first and leave unallocated space; the script will reuse the existing EFI partition
 6. **Kernel not found error** — if ZFSBootMenu shows "failed to find kernels", run:
    ```bash
-   sudo bash install/zbm-check-kernels.sh --pool zroot --dataset ROOT/bookworm --fix
+   sudo bash install/zbm-check-kernels.sh --pool zroot --dataset ROOT/trixie --fix
    ```
 
 ## 🐛 Troubleshooting
@@ -157,14 +157,14 @@ This error means ZFSBootMenu cannot find kernel files in the dataset.
 
 **Quick fix:**
 ```bash
-sudo bash install/zbm-check-kernels.sh --pool zroot --dataset ROOT/bookworm --fix
+sudo bash install/zbm-check-kernels.sh --pool zroot --dataset ROOT/trixie --fix
 ```
 
 **Manual fix:**
 ```bash
 # Mount the dataset
-zfs set mountpoint=/mnt zroot/ROOT/bookworm
-zfs mount zroot/ROOT/bookworm
+zfs set mountpoint=/mnt zroot/ROOT/trixie
+zfs mount zroot/ROOT/trixie
 
 # Check for kernels
 ls -la /mnt/boot/vmlinuz-*
@@ -180,8 +180,8 @@ update-initramfs -c -k all
 exit
 
 # Unmount
-zfs unmount zroot/ROOT/bookworm
-zfs set mountpoint=/ zroot/ROOT/bookworm
+zfs unmount zroot/ROOT/trixie
+zfs set mountpoint=/ zroot/ROOT/trixie
 ```
 
 ### ZRAM not activating

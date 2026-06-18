@@ -133,6 +133,39 @@ clean_previous() {
     fi
 }
 
+sync_project_into_iso_includes() {
+    log_step "Syncing project files into ISO"
+
+    local iso_repo_dir="$LB_CONFIG_DIR/includes.chroot/root/debian-zfs"
+    mkdir -p "$iso_repo_dir"
+    rm -rf "$iso_repo_dir"/*
+
+    # Core project directories
+    cp -a "$PROJECT_DIR/install" "$iso_repo_dir/"
+    cp -a "$PROJECT_DIR/scripts" "$iso_repo_dir/"
+    cp -a "$PROJECT_DIR/docs" "$iso_repo_dir/"
+
+    # Core project files
+    local files=(
+        "README.md"
+        "Makefile"
+        "QUICK_START_RAID0.md"
+        "EXISTING_POOL_INSTALLATION.md"
+    )
+
+    local file
+    for file in "${files[@]}"; do
+        if [ -f "$PROJECT_DIR/$file" ]; then
+            cp -a "$PROJECT_DIR/$file" "$iso_repo_dir/"
+        fi
+    done
+
+    # Normalize line endings to avoid /bin/bash $'\r' errors in live image
+    find "$iso_repo_dir" -type f -name "*.sh" -exec sed -i 's/\r$//' {} +
+
+    log_info "Project synced to: $iso_repo_dir"
+}
+
 ###############################################################################
 # live-build setup
 ###############################################################################
@@ -158,12 +191,12 @@ setup_live_build() {
         rm -rf cache
     fi
 
-    log_info "Initializing live-build with bookworm parameters..."
+    log_info "Initializing live-build with trixie parameters..."
 
     # Initialize with explicit parameters (avoid auto/config issues)
     lb config \
         --architecture amd64 \
-        --distribution bookworm \
+        --distribution trixie \
         --archive-areas "main contrib non-free non-free-firmware" \
         --linux-flavours amd64 \
         2>&1 | tee -a build.log
@@ -292,6 +325,7 @@ main() {
 
     check_prerequisites
     clean_previous
+    sync_project_into_iso_includes
     setup_live_build
     build_iso
     post_build
