@@ -62,16 +62,45 @@ if ! zfs list "$POOL_NAME/$ROOT_DATASET" &>/dev/null; then
     exit 1
 fi
 
-# Save original dataset properties/state
-ORIG_MOUNTPOINT=$(zfs get -H -o value mountpoint "$POOL_NAME/$ROOT_DATASET")
-ORIG_CANMOUNT=$(zfs get -H -o value canmount "$POOL_NAME/$ROOT_DATASET")
-ORIG_MOUNTED=$(zfs get -H -o value mounted "$POOL_NAME/$ROOT_DATASET")
+DATASET="$POOL_NAME/$ROOT_DATASET"
+MOUNT_POINT=""
+TEMP_MOUNT=false
 
-# Mount dataset temporarily
-MOUNT_POINT=$(mktemp -d)
-log_info "Mounting dataset to $MOUNT_POINT..."
-zfs set mountpoint="$MOUNT_POINT" "$POOL_NAME/$ROOT_DATASET"
-zfs mount "$POOL_NAME/$ROOT_DATASET"
+cleanup() {
+    # Best-effort cleanup for bind mounts from --fix path
+    if [ -n "${MOUNT_POINT:-}" ]; then
+        umount -lf "$MOUNT_POINT/sys" 2>/dev/null || true
+        umount -lf "$MOUNT_POINT/proc" 2>/dev/null || true
+        umount -lf "$MOUNT_POINT/dev/pts" 2>/dev/null || true
+        umount -lf "$MOUNT_POINT/dev" 2>/dev/null || true
+    fi
+
+    # Unmount only if script mounted dataset temporarily
+    if [ "$TEMP_MOUNT" = true ]; then
+        zfs unmount "$DATASET" 2>/dev/null || true
+    fi
+
+    if [ -n "${MOUNT_POINT:-}" ] && [ -d "$MOUNT_POINT" ]; then
+        rmdir "$MOUNT_POINT" 2>/dev/null || true
+    fi
+}
+
+trap cleanup EXIT
+
+# Use existing mount if already mounted; else temp mount without changing properties
+if [ "$(zfs get -H -o value mounted "$DATASET")" = "yes" ]; then
+    MOUNT_POINT=$(findmnt -n -o TARGET -S "$DATASET" 2>/dev/null || true)
+    if [ -z "$MOUNT_POINT" ]; then
+        log_error "Dataset mounted but mountpoint not detected"
+        exit 1
+    fi
+    log_info "Dataset already mounted at $MOUNT_POINT"
+else
+    MOUNT_POINT=$(mktemp -d)
+    log_info "Mounting dataset to $MOUNT_POINT..."
+    zfs mount -o mountpoint="$MOUNT_POINT" "$DATASET"
+    TEMP_MOUNT=true
+fi
 
 # Check for kernels
 log_step "Checking for kernel files"
@@ -98,9 +127,10 @@ if [ "$KERNEL_COUNT" -eq 0 ] || [ "$INITRD_COUNT" -eq 0 ]; then
 
             chroot "$MOUNT_POINT" /bin/bash -lc 'apt update && apt install --reinstall -y linux-image-amd64 zfs-initramfs zfsutils-linux && update-initramfs -c -k all' || true
 
-            umount "$MOUNT_POINT/sys" 2>/dev/null || true
-            umount "$MOUNT_POINT/proc" 2>/dev/null || true
-            umount "$MOUNT_POINT/dev" 2>/dev/null || true
+            umount -lf "$MOUNT_POINT/sys" 2>/dev/null || true
+            umount -lf "$MOUNT_POINT/proc" 2>/dev/null || true
+            umount -lf "$MOUNT_POINT/dev/pts" 2>/dev/null || true
+            umount -lf "$MOUNT_POINT/dev" 2>/dev/null || true
             
             KERNEL_COUNT=$(find "$MOUNT_POINT/boot" -name "vmlinuz-*" 2>/dev/null | wc -l)
             INITRD_COUNT=$(find "$MOUNT_POINT/boot" -name "initrd.img-*" 2>/dev/null | wc -l)
@@ -131,9 +161,9 @@ else
     log_step "Checking ZFSBootMenu properties"
     
     bootfs=$(zpool get -H -o value bootfs "$POOL_NAME" 2>/dev/null || echo "-")
-    mountpoint=$(zfs get -H -o value mountpoint "$POOL_NAME/$ROOT_DATASET" 2>/dev/null || echo "-")
-    canmount=$(zfs get -H -o value canmount "$POOL_NAME/$ROOT_DATASET" 2>/dev/null || echo "-")
-    cmdline=$(zfs get -H -o value org.zfsbootmenu:commandline "$POOL_NAME/$ROOT_DATASET" 2>/dev/null || echo "not set")
+    mountpoint=$(zfs get -H -o value mountpoint "$DATASET" 2>/dev/null || echo "-")
+    canmount=$(zfs get -H -o value canmount "$DATASET" 2>/dev/null || echo "-")
+    cmdline=$(zfs get -H -o value org.zfsbootmenu:commandline "$DATASET" 2>/dev/null || echo "not set")
 
     log_info "bootfs: $bootfs"
     log_info "mountpoint: $mountpoint"
@@ -142,33 +172,26 @@ else
 
     if [ "$bootfs" != "$POOL_NAME/$ROOT_DATASET" ]; then
         log_warn "bootfs points to $bootfs, fixing..."
-        zpool set bootfs="$POOL_NAME/$ROOT_DATASET" "$POOL_NAME"
+        zpool set bootfs="$DATASET" "$POOL_NAME"
     fi
 
     if [ "$mountpoint" != "/" ]; then
         log_warn "mountpoint is $mountpoint, fixing to /..."
-        zfs set mountpoint=/ "$POOL_NAME/$ROOT_DATASET"
+        zfs set mountpoint=/ "$DATASET"
     fi
 
     if [ "$canmount" != "noauto" ]; then
         log_warn "canmount is $canmount, fixing to noauto..."
-        zfs set canmount=noauto "$POOL_NAME/$ROOT_DATASET"
+        zfs set canmount=noauto "$DATASET"
     fi
     
     if [ "$cmdline" = "-" ] || [ "$cmdline" = "not set" ]; then
         log_warn "commandline property not set!"
         log_info "Setting default commandline..."
-        zfs set org.zfsbootmenu:commandline="quiet loglevel=0" "$POOL_NAME/$ROOT_DATASET"
+        zfs set org.zfsbootmenu:commandline="quiet loglevel=0" "$DATASET"
     fi
 fi
 
-# Unmount/restore dataset properties
-log_info "Unmounting dataset..."
-if [ "$ORIG_MOUNTED" != "yes" ]; then
-    zfs unmount "$POOL_NAME/$ROOT_DATASET" 2>/dev/null || true
-fi
-zfs set mountpoint="$ORIG_MOUNTPOINT" "$POOL_NAME/$ROOT_DATASET"
-zfs set canmount="$ORIG_CANMOUNT" "$POOL_NAME/$ROOT_DATASET"
-rmdir "$MOUNT_POINT"
+log_info "Cleanup..."
 
 log_step "Check completed"

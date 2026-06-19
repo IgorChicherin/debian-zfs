@@ -5,13 +5,13 @@
 ```
 UEFI Firmware
     ↓
-EFI System Partition (FAT32, 512MB)
+EFI System Partition (FAT32, 1GB)
     ↓
 ZFSBootMenu (VMLINUZ.EFI)
     ↓
 ZFS Pool Import (zroot)
     ↓
-Dataset: zroot/ROOT/debian
+Dataset: zroot/ROOT/trixie
     ↓
 Linux Kernel + Initramfs (kexec)
     ↓
@@ -24,7 +24,7 @@ Systemd → ZFS mount → Root filesystem
 
 | № | Тип | Код | Размер | Назначение |
 |---|-----|-----|--------|------------|
-| 1 | EFI System Partition | EF00 | 512 MB | Загрузчик ZFSBootMenu |
+| 1 | EFI System Partition | EF00 | 1 GB | Загрузчик ZFSBootMenu |
 | 2 | ZFS | BF00 | Всё остальное | ZFS pool (zroot) |
 
 ### Пример разметки
@@ -36,8 +36,8 @@ DISK="/dev/sda"
 sgdisk --zap-all "$DISK"
 wipefs -a "$DISK"
 
-# EFI раздел (512MB)
-sgdisk -n 1:1m:+512m -t 1:ef00 "$DISK"
+# EFI раздел (1GB)
+sgdisk -n 1:1m:+1G -t 1:ef00 "$DISK"
 
 # ZFS раздел (всё остальное)
 sgdisk -n 2:0:-10m -t 2:bf00 "$DISK"
@@ -67,7 +67,7 @@ zpool create -f \
 ```
 zroot                         (pool root)
 ├── ROOT                      (mountpoint=none)
-│   └── debian                (mountpoint=/, canmount=noauto)
+│   └── trixie                (mountpoint=/, canmount=noauto)
 ├── home                      (mountpoint=/home)
 └── var-log                   (mountpoint=/var/log, опционально)
 ```
@@ -79,7 +79,7 @@ zroot                         (pool root)
 zfs create -o mountpoint=none zroot/ROOT
 
 # Корневой датасет для этой установки
-zfs create -o mountpoint=/ -o canmount=noauto zroot/ROOT/debian
+zfs create -o mountpoint=/ -o canmount=noauto zroot/ROOT/trixie
 
 # Домашний каталог (отдельный датасет для снапшотов)
 zfs create -o mountpoint=/home zroot/home
@@ -88,17 +88,17 @@ zfs create -o mountpoint=/home zroot/home
 zfs create -o mountpoint=/var/log zroot/var-log
 
 # Установить загрузочный датасет
-zpool set bootfs=zroot/ROOT/debian zroot
+zpool set bootfs=zroot/ROOT/trixie zroot
 ```
 
 ### Свойства датасетов
 
 ```bash
 # Для ZFSBootMenu
-zfs set org.zfsbootmenu:commandline="quiet loglevel=0" zroot/ROOT/debian
+zfs set org.zfsbootmenu:commandline="quiet loglevel=0" zroot/ROOT/trixie
 
 # Для шифрования (если используется)
-zfs set org.zfsbootmenu:keysource="zroot/ROOT/debian" zroot
+zfs set org.zfsbootmenu:keysource="zroot/ROOT/trixie" zroot
 ```
 
 ## 🔐 Шифрование (ZFS Native Encryption)
@@ -266,7 +266,7 @@ apt install \
 
 ```
 Package: src:zfs-linux
-Pin: release n=bookworm-backports
+Pin: release n=trixie-backports
 Pin-Priority: 990
 ```
 

@@ -353,10 +353,12 @@ DRY_RUN=false
 USE_FREE_SPACE=false
 BOOT_PART=1
 POOL_PART=2
-BOOT_SIZE="+512M"
+BOOT_SIZE="+1G"
 EFI_PART=""
 EFI_DEVICE=""
 MIN_FREE_SPACE_GIB=20
+MIN_EFI_SIZE_MIB=1024
+REUSE_EXISTING_EFI=false
 
 # Installation modes
 MODE="disk"  # disk, existing, or interactive
@@ -588,32 +590,19 @@ check_partition_type() {
     [ "$actual" = "$expected" ]
 }
 
+partition_size_mib() {
+    local part_device="$1"
+    local size_bytes
+    size_bytes=$(lsblk -bno SIZE "$part_device" 2>/dev/null || echo 0)
+    echo $((size_bytes / 1024 / 1024))
+}
+
 resolve_install_layout() {
     if [ "$USE_FREE_SPACE" = true ]; then
         require_gpt_disk
 
-        if [ -n "$EFI_PART" ]; then
-            BOOT_PART="$EFI_PART"
-        else
-            BOOT_PART=$(find_existing_efi_part)
-        fi
-
-        if [ -z "$BOOT_PART" ]; then
-            log_error "No EFI System Partition found on $DISK"
-            log_info "Create or specify it with --efi-part NUM"
-            exit 1
-        fi
-
-        if ! check_partition_type "$BOOT_PART" "EF00"; then
-            log_error "Partition $BOOT_PART on $DISK is not an EFI System Partition"
-            exit 1
-        fi
-
-        POOL_PART=$(next_partition_number)
-        BOOT_DEVICE=$(partition_device "$DISK" "$BOOT_PART")
-        POOL_DEVICE=$(partition_device "$DISK" "$POOL_PART")
-
-        local sector_size free_start free_end free_sectors free_bytes free_gib
+        local free_start free_end free_sectors free_bytes free_gib required_bytes
+        local sector_size
         sector_size=$(blockdev --getss "$DISK")
         free_start=$(sgdisk -F "$DISK" 2>/dev/null || true)
         free_end=$(sgdisk -E "$DISK" 2>/dev/null || true)
@@ -633,6 +622,41 @@ resolve_install_layout() {
         free_bytes=$((free_sectors * sector_size))
         free_gib=$((free_bytes / 1024 / 1024 / 1024))
 
+        if [ -n "$EFI_PART" ]; then
+            REUSE_EXISTING_EFI=true
+            BOOT_PART="$EFI_PART"
+
+            if ! check_partition_type "$BOOT_PART" "EF00"; then
+                log_error "Partition $BOOT_PART on $DISK is not an EFI System Partition"
+                exit 1
+            fi
+
+            BOOT_DEVICE=$(partition_device "$DISK" "$BOOT_PART")
+            local efi_size_mib
+            efi_size_mib=$(partition_size_mib "$BOOT_DEVICE")
+            if [ "$efi_size_mib" -lt "$MIN_EFI_SIZE_MIB" ]; then
+                log_error "EFI partition $BOOT_DEVICE is ${efi_size_mib} MiB (< ${MIN_EFI_SIZE_MIB} MiB required)"
+                log_info "Do not pass --efi-part to create dedicated EFI in free space"
+                exit 1
+            fi
+
+            POOL_PART=$(next_partition_number)
+            POOL_DEVICE=$(partition_device "$DISK" "$POOL_PART")
+        else
+            REUSE_EXISTING_EFI=false
+            BOOT_PART=$(next_partition_number)
+            POOL_PART=$((BOOT_PART + 1))
+            BOOT_DEVICE=$(partition_device "$DISK" "$BOOT_PART")
+            POOL_DEVICE=$(partition_device "$DISK" "$POOL_PART")
+
+            required_bytes=$((MIN_FREE_SPACE_GIB * 1024 * 1024 * 1024 + MIN_EFI_SIZE_MIB * 1024 * 1024))
+            if [ "$free_bytes" -lt "$required_bytes" ]; then
+                log_error "Not enough free space for dedicated EFI + ZFS root"
+                log_info "Need at least ${MIN_FREE_SPACE_GIB} GiB + ${MIN_EFI_SIZE_MIB} MiB EFI"
+                exit 1
+            fi
+        fi
+
         if [ "$free_gib" -lt "$MIN_FREE_SPACE_GIB" ]; then
             log_error "Only ${free_gib} GiB of free space found on $DISK"
             log_info "At least ${MIN_FREE_SPACE_GIB} GiB of free space is required"
@@ -642,11 +666,19 @@ resolve_install_layout() {
         log_warn "Windows-preserving mode enabled"
         log_warn "Existing partitions will be kept; only free space will be used"
         log_warn "Disk: $(lsblk -dn -o NAME,SIZE "$DISK")"
-        log_warn "EFI partition: $BOOT_DEVICE"
+        if [ "$REUSE_EXISTING_EFI" = true ]; then
+            log_warn "EFI partition (reused): $BOOT_DEVICE"
+        else
+            log_warn "EFI partition (new): $BOOT_DEVICE (${BOOT_SIZE})"
+        fi
         log_warn "Free space selected for ZFS: ${free_gib} GiB"
 
         if [ "$DRY_RUN" = false ]; then
-            read -p "Create Debian ZFS in free space and reuse EFI partition ${BOOT_PART}? (yes/no): " confirm
+            if [ "$REUSE_EXISTING_EFI" = true ]; then
+                read -p "Create Debian ZFS in free space and reuse EFI partition ${BOOT_PART}? (yes/no): " confirm
+            else
+                read -p "Create Debian ZFS in free space with dedicated EFI (${BOOT_SIZE})? (yes/no): " confirm
+            fi
             if [ "$confirm" != "yes" ]; then
                 log_info "Cancelled by user"
                 exit 0
@@ -730,9 +762,16 @@ prepare_disk() {
         free_start=$(sgdisk -F "$DISK")
         free_end=$(sgdisk -E "$DISK")
 
-        log_info "Reusing existing EFI partition: $BOOT_DEVICE"
-        log_info "Creating ZFS partition in free space (${POOL_DEVICE})..."
-        run_cmd sgdisk -n "${POOL_PART}:${free_start}:${free_end}" -t "${POOL_PART}:bf00" "$DISK"
+        if [ "$REUSE_EXISTING_EFI" = true ]; then
+            log_info "Reusing existing EFI partition: $BOOT_DEVICE"
+            log_info "Creating ZFS partition in free space (${POOL_DEVICE})..."
+            run_cmd sgdisk -n "${POOL_PART}:${free_start}:${free_end}" -t "${POOL_PART}:bf00" "$DISK"
+        else
+            log_info "Creating dedicated EFI partition (${BOOT_DEVICE}, ${BOOT_SIZE})..."
+            run_cmd sgdisk -n "${BOOT_PART}:${free_start}:${BOOT_SIZE}" -t "${BOOT_PART}:ef00" "$DISK"
+            log_info "Creating ZFS partition in remaining free space (${POOL_DEVICE})..."
+            run_cmd sgdisk -n "${POOL_PART}:0:${free_end}" -t "${POOL_PART}:bf00" "$DISK"
+        fi
     else
         # Clear old partitions
         log_info "Clearing disk..."
@@ -1090,7 +1129,7 @@ CHROOT_SCRIPT
 setup_efi() {
     log_step "Configuring EFI System Partition"
 
-    if [ "$USE_FREE_SPACE" = true ]; then
+    if [ "$USE_FREE_SPACE" = true ] && [ "$REUSE_EXISTING_EFI" = true ]; then
         log_info "Reusing existing EFI System Partition: $BOOT_DEVICE"
     else
         # Format EFI partition
@@ -1251,6 +1290,57 @@ verify_boot_environment() {
     fi
 
     log_info "Boot environment verification passed"
+}
+
+auto_fix_no_be() {
+    log_step "Auto-fix for 'no boot environments found'"
+
+    if [ "$DRY_RUN" = true ]; then
+        log_warn "DRY-RUN: skipping auto-fix"
+        return 0
+    fi
+
+    local be_dataset
+    if [ "$MODE" = "existing" ] && [ -n "$POOL_DATASET" ]; then
+        be_dataset="$POOL_DATASET"
+    else
+        be_dataset="${POOL_NAME}/ROOT/${DEBIAN_RELEASE}"
+    fi
+
+    # Re-assert required BE properties
+    ensure_boot_environment_properties "$be_dataset"
+
+    # Ensure fallback EFI path exists
+    if [ -f "$MOUNT_POINT/boot/efi/EFI/ZBM/VMLINUZ.EFI" ]; then
+        run_cmd mkdir -p "$MOUNT_POINT/boot/efi/EFI/BOOT"
+        run_cmd cp "$MOUNT_POINT/boot/efi/EFI/ZBM/VMLINUZ.EFI" \
+            "$MOUNT_POINT/boot/efi/EFI/BOOT/BOOTX64.EFI"
+    else
+        log_error "Missing $MOUNT_POINT/boot/efi/EFI/ZBM/VMLINUZ.EFI"
+        return 1
+    fi
+
+    # Ensure efibootmgr entry when disk/part known
+    if { [ -z "$DISK" ] || [ -z "${BOOT_PART:-}" ]; } && [ -n "$EFI_DEVICE" ]; then
+        local detected_disk detected_part
+        detected_disk=$(lsblk -no PKNAME "$EFI_DEVICE" 2>/dev/null || true)
+        detected_part=$(lsblk -no PARTN "$EFI_DEVICE" 2>/dev/null || true)
+        [ -n "$detected_disk" ] && DISK="/dev/${detected_disk}"
+        [ -n "$detected_part" ] && BOOT_PART="$detected_part"
+    fi
+
+    if command -v efibootmgr >/dev/null 2>&1 && [ -n "$DISK" ] && [ -n "${BOOT_PART:-}" ]; then
+        if ! efibootmgr -v | grep -q "\\EFI\\ZBM\\VMLINUZ.EFI"; then
+            run_cmd efibootmgr -c -d "$DISK" -p "$BOOT_PART" \
+                -L "ZFSBootMenu" -l '\\EFI\\ZBM\\VMLINUZ.EFI' || true
+        fi
+    fi
+
+    # Final diagnostics
+    run_cmd zpool get bootfs "$POOL_NAME" || true
+    run_cmd zfs get mountpoint,canmount,org.zfsbootmenu:commandline "$be_dataset" || true
+    run_cmd ls -lh "$MOUNT_POINT"/boot/vmlinuz-* "$MOUNT_POINT"/boot/initrd.img-* 2>/dev/null || true
+    log_info "Auto-fix complete"
 }
 
 configure_zram() {
@@ -1416,6 +1506,7 @@ install_on_existing_pool() {
     verify_boot_environment
     setup_efi_existing
     install_zfsbootmenu
+    auto_fix_no_be
     configure_zram
     finalize
 }
@@ -1479,6 +1570,7 @@ main() {
             verify_boot_environment
             setup_efi
             install_zfsbootmenu
+            auto_fix_no_be
             configure_zram
             finalize
             ;;
@@ -1503,6 +1595,7 @@ main() {
             verify_boot_environment
             setup_efi
             install_zfsbootmenu
+            auto_fix_no_be
             configure_zram
             finalize
             ;;

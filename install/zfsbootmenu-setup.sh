@@ -327,6 +327,35 @@ create_efi_entries() {
     efibootmgr -v
 }
 
+auto_fix_no_be() {
+    log_step "Auto-fix for 'no boot environments found'"
+
+    local dataset="$POOL_NAME/$ROOT_DATASET"
+
+    # Re-assert required properties
+    zpool set bootfs="$dataset" "$POOL_NAME"
+    zfs set org.zfsbootmenu:commandline="quiet loglevel=0" "$dataset"
+
+    # Change mountpoint/canmount only if dataset not mounted outside '/'
+    local mounted_state current_mountpoint
+    mounted_state=$(zfs get -H -o value mounted "$dataset" 2>/dev/null || echo "no")
+    current_mountpoint=$(findmnt -n -o TARGET -S "$dataset" 2>/dev/null || echo "")
+    if [ "$mounted_state" != "yes" ] || [ -z "$current_mountpoint" ] || [ "$current_mountpoint" = "/" ]; then
+        zfs set mountpoint=/ "$dataset"
+        zfs set canmount=noauto "$dataset"
+    else
+        log_warn "Dataset mounted at $current_mountpoint, skipping mountpoint/canmount change"
+    fi
+
+    # Ensure fallback EFI binary exists
+    mkdir -p /boot/efi/EFI/BOOT
+    cp /boot/efi/EFI/ZBM/VMLINUZ.EFI /boot/efi/EFI/BOOT/BOOTX64.EFI
+
+    # Show final state
+    zpool get bootfs "$POOL_NAME"
+    zfs get mountpoint,canmount,org.zfsbootmenu:commandline "$dataset"
+}
+
 install_from_source() {
     log_step "Installing ZFSBootMenu from source (optional)"
 
@@ -455,6 +484,7 @@ main() {
     download_zfsbootmenu
     configure_zfsbootmenu
     create_efi_entries
+    auto_fix_no_be
     generate_image
 
     log_info ""

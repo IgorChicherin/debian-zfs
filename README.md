@@ -1,15 +1,16 @@
-# Debian Bookworm ZFS Root + ZFSBootMenu + ZRAM
+# Debian Trixie ZFS Root + ZFSBootMenu + ZRAM
 
-Automated Debian Bookworm (12) installation with ZFS root filesystem, ZFSBootMenu bootloader, and ZRAM compressed swap.
+Automated Debian Trixie (13) installation with ZFS root filesystem, ZFSBootMenu bootloader, and ZRAM compressed swap.
 
 ## 📋 Features
 
 - **ZFS Root** — Root filesystem on ZFS with compression=lz4, autotrim, ACL
 - **ZFSBootMenu** — Modern bootloader with snapshot support and custom kernels
 - **ZRAM** — Compressed RAM swap via systemd-zram-generator (60% RAM, zstd)
-- **UEFI** — UEFI boot support with EFI System Partition
+- **UEFI** — UEFI boot support with dedicated 1GB EFI System Partition
 - **Encryption** — Optional ZFS native encryption (AES-256-GCM)
 - **Custom ISO** — Build your own Live image via live-build
+- **Windows dual-boot** — Install alongside Windows using free GPT space with dedicated EFI partition
 
 ## 🗂 Project Structure
 
@@ -20,6 +21,8 @@ debian-zfs/
 ├── install/
 │   ├── zfs-install.sh             # Main ZFS root installation script
 │   ├── zfsbootmenu-setup.sh       # ZFSBootMenu setup
+│   ├── zbm-check-kernels.sh       # Check and fix ZFSBootMenu kernel detection
+│   ├── fix-boot.sh                # Fix "no boot environments found" after install
 │   └── zram-config.sh             # ZRAM configuration
 ├── config/
 │   ├── zfsbootmenu/
@@ -30,7 +33,10 @@ debian-zfs/
 │       ├── package-lists/
 │       │   └── zfs.list.chroot
 │       ├── includes.chroot/
-│       │   └── etc/
+│       │   ├── etc/install/       # Scripts embedded in live ISO
+│       │   └── root/debian-zfs/   # Full project copy in live ISO
+│       ├── hooks/
+│       │   └── live.hook.chroot   # Permissions hook
 │       └── auto/
 │           └── config
 ├── scripts/
@@ -48,7 +54,7 @@ debian-zfs/
 ### 1. Prepare Live Environment
 
 ```bash
-# Download Debian Bookworm netinst or live ISO
+# Download Debian Trixie live ISO or use the custom ISO from this project
 # https://www.debian.org/download
 
 # In the live environment, run:
@@ -57,58 +63,68 @@ git clone <this repository>
 cd debian-zfs
 ```
 
+Or if using the custom ISO built from this project, scripts are already at `/root/debian-zfs/`.
+
 ### 2. Install ZFS Root
 
 ```bash
 # Check disks
 lsblk
 
-# Edit variables in install/zfs-install.sh:
-# DISK="/dev/sda"  # your disk
-# BOOT_PART="1"    # EFI partition
-# POOL_PART="2"    # ZFS partition
-
-# Run installation (without encryption):
+# Fresh install (wipes entire disk):
 sudo bash install/zfs-install.sh --disk /dev/sda
 
-# Or with encryption:
+# With encryption:
 sudo bash install/zfs-install.sh --disk /dev/sda --encrypt --passphrase "YOUR_PASSPHRASE"
 
-# Install alongside Windows using existing unallocated/free GPT space:
-# Reuses the existing EFI partition instead of formatting the disk.
+# Install alongside Windows (creates dedicated 1GB EFI in free GPT space):
 sudo bash install/zfs-install.sh --disk /dev/nvme0n1 --use-free-space
 
-# If auto-detection picks the wrong EFI partition, specify it explicitly:
+# Install alongside Windows reusing an existing EFI partition (must be >= 1GB):
 sudo bash install/zfs-install.sh --disk /dev/nvme0n1 --use-free-space --efi-part 1
+
+# Intel RST RAID 0:
+sudo bash install/zfs-install.sh --disk /dev/md127 --use-free-space
 ```
 
-### 3. Setup ZFSBootMenu
+### 3. If Boot Fails — Run Fix Script
+
+If ZFSBootMenu shows **"no boot environments found"** after reboot, boot back into the live ISO and run:
 
 ```bash
-# Automatic setup:
+sudo bash /root/debian-zfs/install/fix-boot.sh
+```
+
+This automatically:
+- Imports the ZFS pool
+- Fixes boot environment properties (`bootfs`, `mountpoint`, `canmount`, `org.zfsbootmenu:commandline`)
+- Reinstalls kernel/initramfs if missing
+- Fixes EFI fallback path (`EFI/BOOT/BOOTX64.EFI`)
+- Recreates NVRAM boot entries
+
+### 4. Setup ZFSBootMenu (manual)
+
+```bash
+# If ZFSBootMenu needs to be (re)configured manually:
 sudo bash install/zfsbootmenu-setup.sh
-
-# Or manually follow instructions in docs/ARCHITECTURE.md
 ```
 
-### 4. Configure ZRAM
+### 5. Configure ZRAM
 
 ```bash
-# Install and configure ZRAM:
 sudo bash install/zram-config.sh
 ```
 
 ## 🛠 Building Custom ISO
 
+The ISO includes all project scripts at `/root/debian-zfs/` so no cloning is needed.
+
 ```bash
-# Install dependencies (Debian):
+# Install dependencies:
 sudo apt install live-build
 
 # Build ISO:
-make build
-
-# Or directly:
-sudo bash scripts/build-iso.sh
+sudo make build
 
 # Write to USB:
 sudo bash scripts/usb-write.sh /dev/sdX  # WARNING: use correct disk!
@@ -120,75 +136,60 @@ sudo bash scripts/usb-write.sh /dev/sdX  # WARNING: use correct disk!
 # Test ISO in virtual machine:
 make test
 
-# Or directly:
-bash scripts/test-vm.sh output/debian-zfs.iso
-
 # Test installed system:
 bash scripts/test-vm.sh --disk /dev/sdX
 ```
 
-## 📦 Package Versions (April 2026)
+## 📦 Package Versions (June 2026)
 
 | Package | Version | Source |
 |---------|---------|--------|
-| zfsutils-linux | 2.3.2+ (backports) | trixie-backports |
-| zfs-initramfs | 2.3.2+ (backports) | trixie-backports |
+| zfsutils-linux | 2.3.5+ (backports) | trixie-backports |
+| zfs-initramfs | 2.3.5+ (backports) | trixie-backports |
+| zfs-dkms | 2.3.5+ (backports) | trixie-backports |
 | ZFSBootMenu | 3.1.x | get.zfsbootmenu.org |
 | systemd-zram-generator | 1.1.2+ | trixie |
-| linux-image-amd64 | 6.1.x LTS | trixie |
+| linux-image-amd64 | 6.12.x | trixie |
 
 ## ⚠️ Important Notes
 
 1. **ZFS is not included in Debian Installer** due to licensing restrictions — installation is done manually via debootstrap
 2. **ZFSBootMenu replaces GRUB** — do not install GRUB when using ZFSBootMenu
-3. **Do not use zram-tools and systemd-zram-generator simultaneously** — choose one (systemd is recommended)
-4. **EFI backup** — always backup VMLINUZ.EFI before updates
-5. **Windows dual-boot mode requires GPT free space** — shrink the Windows partition first and leave unallocated space; the script will reuse the existing EFI partition
-6. **Kernel not found error** — if ZFSBootMenu shows "failed to find kernels", run:
-   ```bash
-   sudo bash install/zbm-check-kernels.sh --pool zroot --dataset ROOT/trixie --fix
-   ```
+3. **Disable Secure Boot** — ZFSBootMenu EFI binary is not signed; Secure Boot must be off
+4. **Do not use zram-tools and systemd-zram-generator simultaneously** — choose one (systemd is recommended)
+5. **EFI partition size** — installer creates a dedicated 1GB EFI partition; the Windows 100MB EFI is too small for ZFSBootMenu
+6. **Windows dual-boot** — use `--use-free-space`; shrink the Windows partition first to leave unallocated GPT space
 
 ## 🐛 Troubleshooting
 
-### ZFSBootMenu: "failed to find kernels"
+### ZFSBootMenu: "no boot environments found"
 
-This error means ZFSBootMenu cannot find kernel files in the dataset.
+Boot from live ISO and run the fix script:
 
-**Quick fix:**
 ```bash
-sudo bash install/zbm-check-kernels.sh --pool zroot --dataset ROOT/trixie --fix
+sudo bash /root/debian-zfs/install/fix-boot.sh
+# or with explicit EFI partition:
+sudo bash /root/debian-zfs/install/fix-boot.sh --efi-disk /dev/sda --efi-part 1
 ```
 
-**Manual fix:**
+### ZFSBootMenu: "failed to find kernels"
+
 ```bash
-# Mount the dataset
-zfs set mountpoint=/mnt zroot/ROOT/trixie
-zfs mount zroot/ROOT/trixie
+sudo bash /root/debian-zfs/install/zbm-check-kernels.sh \
+    --pool zroot --dataset ROOT/trixie --fix
+```
 
-# Check for kernels
-ls -la /mnt/boot/vmlinuz-*
-ls -la /mnt/boot/initrd.img-*
+### ZFS package conflicts
 
-# If missing, chroot and reinstall kernel
-mount --bind /dev /mnt/dev
-mount --bind /proc /mnt/proc
-mount --bind /sys /mnt/sys
-chroot /mnt
-apt install --reinstall linux-image-amd64
-update-initramfs -c -k all
-exit
+If you see `libzfs6linux` / `libzfs7linux` conflicts:
 
-# Unmount
-zfs unmount zroot/ROOT/trixie
-zfs set mountpoint=/ zroot/ROOT/trixie
+```bash
+sudo apt remove -y libzfs6linux libuutil3linux libnvpair3linux libzpool6linux || true
+sudo apt install -y -t trixie-backports zfsutils-linux zfs-initramfs zfs-dkms
 ```
 
 ### ZRAM not activating
 
-In live environments, ZRAM may not activate. The configuration is saved and will apply after reboot.
-
-**Check status:**
 ```bash
 sudo bash install/zram-config.sh --status
 ```
@@ -196,12 +197,14 @@ sudo bash install/zram-config.sh --status
 ## 📚 Documentation
 
 - [Architecture and Dataset Structure](docs/ARCHITECTURE.md)
+- [Existing Pool Installation](EXISTING_POOL_INSTALLATION.md)
+- [Intel RST RAID 0 Quick Start](QUICK_START_RAID0.md)
 - [Testing Guide](docs/TESTING.md)
 - [Sources and Documentation](docs/SOURCES.md)
 
 ## 🔗 Sources
 
-- [Official OpenZFS Documentation — Debian Bookworm](https://openzfs.github.io/openzfs-docs/Getting%20Started/Debian/index.html)
+- [Official OpenZFS Documentation — Debian](https://openzfs.github.io/openzfs-docs/Getting%20Started/Debian/index.html)
 - [ZFSBootMenu Documentation](https://docs.zfsbootmenu.org/)
 - [Debian Wiki — ZFS](https://wiki.debian.org/ZFS)
 - [Debian Wiki — ZRAM](https://wiki.debian.org/ZRam)

@@ -4,10 +4,10 @@
 
 ### OpenZFS и Debian
 
-1. **[OpenZFS — Debian Bookworm](https://openzfs.github.io/openzfs-docs/Getting%20Started/Debian/index.html)**
+1. **[OpenZFS — Debian Trixie](https://openzfs.github.io/openzfs-docs/Getting%20Started/Debian/index.html)**
    - Официальная документация OpenZFS
-   - Актуальная версия: 2.3.2+ (bookworm-backports)
-   - Дата проверки: Апрель 2026
+   - Актуальная версия: 2.3.5+ (trixie-backports)
+   - Дата проверки: Июнь 2026
 
 2. **[Debian Wiki — ZFS](https://wiki.debian.org/ZFS)**
    - Сообщество Debian
@@ -22,7 +22,7 @@
 
 4. **[ZFSBootMenu Documentation](https://docs.zfsbootmenu.org/)**
    - Версия: 3.1.x
-   - Руководство по Debian Bookworm: `/guides/debian/bookworm-uefi.html`
+   - Руководство по Debian Trixie: `/guides/debian/trixie-uefi.html`
    - Changelog: `/en/v3.1.x/CHANGELOG.html`
    - Обновлено: Январь 2026
 
@@ -43,17 +43,17 @@
 
 ## 🛠 Инструменты и пакеты
 
-### Версии пакетов (Апрель 2026)
+### Версии пакетов (Июнь 2026)
 
 | Пакет | Версия | Репозиторий | Примечание |
 |-------|--------|-------------|------------|
-| zfsutils-linux | 2.3.2-2~bpo012+2 | bookworm-backports | Основная утилита |
-| zfs-initramfs | 2.3.2-2~bpo012+2 | bookworm-backports | Initramfs модуль |
-| zfs-dkms | 2.3.2-2~bpo012+2 | bookworm-backports | DKMS модуль |
+| zfsutils-linux | 2.3.5+ | trixie-backports | Основная утилита |
+| zfs-initramfs | 2.3.5+ | trixie-backports | Initramfs модуль |
+| zfs-dkms | 2.3.5+ | trixie-backports | DKMS модуль |
 | ZFSBootMenu | 3.1.x | get.zfsbootmenu.org | Prebuilt EFI |
-| systemd-zram-generator | 1.1.2+ | bookworm | Рекомендуемый |
-| zram-tools | 1.2.x | bookworm | Альтернатива |
-| linux-image-amd64 | 6.1.x LTS | bookworm | Debian stable |
+| systemd-zram-generator | 1.1.2+ | trixie | Рекомендуемый |
+| zram-tools | 1.2.x | trixie | Альтернатива |
+| linux-image-amd64 | 6.12.x | trixie | Debian 13 stable |
 
 ### Важные изменения в 2025-2026
 
@@ -110,7 +110,7 @@
 
 ### Что осталось прежним
 
-- ✅ Структура датасетов (zroot/ROOT/debian)
+- ✅ Структура датасетов (zroot/ROOT/trixie)
 - ✅ Основные параметры пула (ashift=12, compression=lz4)
 - ✅ Процесс debootstrap + chroot
 - ✅ ZFSBootMenu EFI бинарь (get.zfsbootmenu.org)

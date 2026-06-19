@@ -4,7 +4,7 @@
 
 ## 1. Identify Your RAID Device
 
-Boot from Debian live environment (netinst or live ISO).
+Boot from Debian Trixie live environment or the custom ISO from this project (scripts at `/root/debian-zfs/`).
 
 List your RAID arrays:
 
@@ -24,13 +24,15 @@ You should see output like:
 - `/dev/dm-0` (device-mapper RAID)
 - OR `/dev/mapper/raid0` (named device-mapper)
 
-## 2. Clone This Repository
+## 2. Clone This Repository (if not using custom ISO)
 
 ```bash
 sudo -i
 git clone <this-repository>
 cd debian-zfs
 ```
+
+If using the custom ISO, scripts are already at `/root/debian-zfs/`.
 
 ## 3. Run Installation
 
@@ -49,10 +51,12 @@ sudo bash install/zfs-install.sh --disk /dev/md127 --encrypt
 # Custom hostname
 sudo bash install/zfs-install.sh --disk /dev/md127 --hostname myserver
 
+# Install alongside Windows (creates dedicated 1GB EFI in free GPT space):
+sudo bash install/zfs-install.sh --disk /dev/md127 --use-free-space
+
 # All options
 sudo bash install/zfs-install.sh --disk /dev/md127 \
     --hostname myserver \
-    --password MyRootPass \
     --pool-name zpool \
     --encrypt \
     --passphrase MyZFSPass
@@ -63,12 +67,13 @@ sudo bash install/zfs-install.sh --disk /dev/md127 \
 The script will:
 1. ✓ Detect your RAID configuration
 2. ✓ Validate the RAID device is safe to use
-3. ✓ Install ZFS packages
-4. ✓ Partition your RAID device
-5. ✓ Create ZFS pool and datasets
-6. ✓ Install Debian via debootstrap
+3. ✓ Install ZFS packages from trixie-backports
+4. ✓ Partition your RAID device (1GB EFI + ZFS)
+5. ✓ Create ZFS pool and datasets (`zroot/ROOT/trixie`)
+6. ✓ Install Debian Trixie via debootstrap
 7. ✓ Configure ZFSBootMenu
-8. ✓ Setup ZRAM compressed swap
+8. ✓ Auto-fix boot environment properties
+9. ✓ Setup ZRAM compressed swap
 
 This takes 5-15 minutes depending on network and disk speed.
 
@@ -159,6 +164,13 @@ sudo chroot /mnt /bin/bash
    sudo mdadm --assemble --scan
    ```
 
+### ZFSBootMenu shows "No boot environments found"
+
+Boot from live ISO and run:
+```bash
+sudo bash /root/debian-zfs/install/fix-boot.sh
+```
+
 ### ZFSBootMenu shows "Failed to find kernels"
 
 Run the kernel check script:
@@ -233,12 +245,12 @@ NAME      ALGORITHM DISKSIZE DATA  COMPR TOTAL STREAMS MOUNTPOINT
 
 ## Need Help?
 
-1. Check the detailed docs: `docs/FIXES_AND_RAID_SUPPORT.md`
-2. Try `--dry-run` to see what would happen
-3. Check logs: `journalctl -xe`
-4. Search: "ZFS + your issue" on Ubuntu/Debian forums
+1. Try `--dry-run` to see what would happen
+2. Check logs: `journalctl -xe`
+3. Boot fix: `sudo bash /root/debian-zfs/install/fix-boot.sh`
+4. Docs: [README.md](README.md), [EXISTING_POOL_INSTALLATION.md](EXISTING_POOL_INSTALLATION.md)
 
 ---
 
-**Version:** 2.0 (April 2026)  
-**Last Updated:** April 2026
+**Version:** 2.1 (June 2026)
+**Last Updated:** June 2026
