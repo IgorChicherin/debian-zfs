@@ -193,18 +193,37 @@ setup_live_build() {
     log_info "Copying configuration..."
 
     # Package lists
+    mkdir -p config/package-lists
+
+    # Copy from config dir if present
     if [ -d "$LB_CONFIG_DIR/package-lists" ]; then
-        mkdir -p config/package-lists
         cp "$LB_CONFIG_DIR"/package-lists/*.chroot config/package-lists/
-        log_info "Package lists copied"
     fi
 
+    # Add RAID support (Intel RST) and required kernel modules
+    cat >> config/package-lists/raid.list.chroot <<RAIDEOF
+mdadm
+RAIDEOF
+    log_info "Package lists copied"
+
     # Includes
+    mkdir -p config/includes.chroot
+
     if [ -d "$LB_CONFIG_DIR/includes.chroot" ]; then
-        mkdir -p config/includes.chroot
         cp -r "$LB_CONFIG_DIR"/includes.chroot/* config/includes.chroot/
-        log_info "Includes copied"
     fi
+
+    # Load RAID/VMD kernel modules at boot for Intel RST RAID0 support
+    mkdir -p config/includes.chroot/etc/modules-load.d
+    cat > config/includes.chroot/etc/modules-load.d/zfs-raid.conf <<MODEOF
+vmd
+nvme
+md_mod
+raid0
+raid1
+raid10
+MODEOF
+    log_info "Includes copied"
 
     log_info "live-build configuration ready"
 }
