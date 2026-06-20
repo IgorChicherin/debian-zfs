@@ -9,28 +9,40 @@ echo "---------------------------------------------"
 # =========================================================
 echo "🌐 Fixing repositories..."
 
-cat > /etc/apt/sources.list <<EOF
-deb http://deb.debian.org/debian trixie main contrib non-free-firmware
-deb http://deb.debian.org/debian trixie-updates main contrib non-free-firmware
-deb http://security.debian.org/debian-security trixie-security main contrib non-free-firmware
-EOF
-
+echo "deb http://deb.debian.org/debian trixie-backports main non-free-firmware contrib" >> /etc/apt/sources.list
 apt update
 
 # =========================================================
 # 2. PACKAGES INSTALL (ТО ЧТО ТЫ НЕ МОГ СТАВИТЬ РАНЬШЕ)
 # =========================================================
+echo "Removing conflicting ZFS packages..."
+apt remove -y \
+    zfsutils-linux \
+    zfs-initramfs \
+    zfs-dkms \
+    libzfs6linux \
+    libzpool6linux \
+    libuutil3linux \
+    libnvpair3linux \
+    2>/dev/null || true
+
 echo "📦 Installing required packages..."
+apt install -y -t trixie-backports \
+    zfsutils-linux \
+    zfs-initramfs \
+    zfs-dkms
 
 apt install -y \
-  zfsutils-linux \
-  zfs-dkms \
-  debootstrap \
-  dosfstools \
-  curl \
-  dracut \
-  efibootmgr \
-  gdisk
+    debootstrap \
+    gdisk \
+    dkms \
+    "linux-headers-$(uname -r)" \
+    curl \
+    dosfstools \
+    efibootmgr \
+    cpio \
+    kexec-tools \
+    mdadm
 
 # =========================================================
 # DISK SELECTION
@@ -122,7 +134,36 @@ set -e
 
 echo "⚙️ CHROOT SETUP"
 
+echo "deb http://deb.debian.org/debian trixie-backports main non-free-firmware contrib" >> /etc/apt/sources.list
 apt update
+
+apt remove -y \
+    zfsutils-linux \
+    zfs-initramfs \
+    zfs-dkms \
+    libzfs6linux \
+    libzpool6linux \
+    libuutil3linux \
+    libnvpair3linux \
+    2>/dev/null || true
+
+echo "📦 Installing required packages..."
+apt install -y -t trixie-backports \
+    zfsutils-linux \
+    zfs-initramfs \
+    zfs-dkms
+
+apt install -y \
+    debootstrap \
+    gdisk \
+    dkms \
+    "linux-headers-$(uname -r)" \
+    curl \
+    dosfstools \
+    efibootmgr \
+    cpio \
+    kexec-tools \
+    mdadm
 
 apt install -y \
   linux-image-amd64 \
