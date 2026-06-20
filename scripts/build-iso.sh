@@ -134,36 +134,14 @@ clean_previous() {
 }
 
 sync_project_into_iso_includes() {
-    log_step "Syncing project files into ISO"
+    log_step "Installing zfsinstall.sh into ISO"
 
-    local iso_repo_dir="$LB_CONFIG_DIR/includes.chroot/root/debian-zfs"
-    mkdir -p "$iso_repo_dir"
-    rm -rf "$iso_repo_dir"/*
+    # Install zfsinstall.sh to /usr/bin so it's in PATH in the live image
+    local usr_bin_dir="$LB_CONFIG_DIR/includes.chroot/usr/bin"
+    mkdir -p "$usr_bin_dir"
+    cp -a "$PROJECT_DIR/install/zfsinstall.sh" "$usr_bin_dir/zfsinstall"
 
-    # Core project directories
-    cp -a "$PROJECT_DIR/install" "$iso_repo_dir/"
-    cp -a "$PROJECT_DIR/scripts" "$iso_repo_dir/"
-    cp -a "$PROJECT_DIR/docs" "$iso_repo_dir/"
-
-    # Core project files
-    local files=(
-        "README.md"
-        "Makefile"
-        "QUICK_START_RAID0.md"
-        "EXISTING_POOL_INSTALLATION.md"
-    )
-
-    local file
-    for file in "${files[@]}"; do
-        if [ -f "$PROJECT_DIR/$file" ]; then
-            cp -a "$PROJECT_DIR/$file" "$iso_repo_dir/"
-        fi
-    done
-
-    # Normalize line endings to avoid /bin/bash $'\r' errors in live image
-    find "$iso_repo_dir" -type f -name "*.sh" -exec sed -i 's/\r$//' {} +
-
-    log_info "Project synced to: $iso_repo_dir"
+    log_info "zfsinstall.sh installed to /usr/bin/zfsinstall"
 }
 
 ###############################################################################

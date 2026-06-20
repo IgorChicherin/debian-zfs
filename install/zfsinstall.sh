@@ -30,14 +30,14 @@ echo "📦 Installing required packages..."
 apt install -y -t trixie-backports \
     zfsutils-linux \
     zfs-initramfs \
-    zfs-dkms
+    zfs-dkms \
+    curl
 
 apt install -y \
     debootstrap \
     gdisk \
     dkms \
     "linux-headers-$(uname -r)" \
-    curl \
     dosfstools \
     efibootmgr \
     cpio \
@@ -53,11 +53,25 @@ echo ""
 read -rp "EFI partition (e.g. /dev/nvme0n1p1): " EFI
 read -rp "ZFS partition (e.g. /dev/nvme0n1p2): " ZFS
 read -rp "Hostname: " HOST
+read -rp "Username (leave empty for root-only): " USERNAME
+if [ -n "$USERNAME" ]; then
+    read -rsp "Password for $USERNAME: " USERPASS
+    echo
+    read -rsp "Confirm password: " USERPASS2
+    echo
+    [[ "$USERPASS" != "$USERPASS2" ]] && echo "Passwords don't match" && exit 1
+fi
+read -rsp "Root password: " ROOTPASS
+echo
+read -rsp "Confirm root password: " ROOTPASS2
+echo
+[[ "$ROOTPASS" != "$ROOTPASS2" ]] && echo "Passwords don't match" && exit 1
 
 echo ""
 echo "EFI  = $EFI"
 echo "ZFS  = $ZFS"
 echo "HOST = $HOST"
+[ -n "$USERNAME" ] && echo "USER = $USERNAME"
 echo ""
 
 read -rp "Type YES to continue: " CONFIRM
@@ -105,9 +119,12 @@ zfs set mountpoint=/tmp zroot/tmp
 # =========================================================
 # 6. MOUNT SYSTEM
 # =========================================================
+# Resolve EFI disk/partition now (lsblk may not work inside chroot)
+EFI_DISK=$(lsblk -no PKNAME "$EFI")
+EFI_PART=$(lsblk -no PARTN "$EFI")
 echo "📍 Mounting system..."
 
-mount -t zfs zroot/ROOT/debian /mnt
+mount -t zfs -o zfsutil zroot/ROOT/debian /mnt
 mkdir -p /mnt/boot/efi
 mount "$EFI" /mnt/boot/efi
 
@@ -128,7 +145,7 @@ mount --rbind /sys /mnt/sys
 # =========================================================
 # 9. CHROOT SCRIPT (REAL SYSTEM SETUP)
 # =========================================================
-cat > /mnt/root/chroot.sh <<'EOF'
+cat > /mnt/root/chroot.sh <<EOF
 #!/bin/bash
 set -e
 
@@ -151,14 +168,13 @@ echo "📦 Installing required packages..."
 apt install -y -t trixie-backports \
     zfsutils-linux \
     zfs-initramfs \
-    zfs-dkms
+    zfs-dkms \
+    curl
 
 apt install -y \
     debootstrap \
     gdisk \
     dkms \
-    "linux-headers-$(uname -r)" \
-    curl \
     dosfstools \
     efibootmgr \
     cpio \
@@ -167,10 +183,11 @@ apt install -y \
 
 apt install -y \
   linux-image-amd64 \
+  linux-headers-amd64 \
+  sudo \
   systemd-sysv \
   zfsutils-linux \
   initramfs-tools \
-  curl \
   efibootmgr
 
 echo "$HOST" > /etc/hostname
@@ -179,6 +196,15 @@ cat > /etc/hosts <<EOL
 127.0.0.1 localhost
 127.0.1.1 $HOST
 EOL
+
+# =====================================================
+# USERS & PASSWORDS
+# =====================================================
+echo "root:$ROOTPASS" | chpasswd
+if [ -n "$USERNAME" ]; then
+    useradd -m -G sudo -s /bin/bash "$USERNAME"
+    echo "$USERNAME:$USERPASS" | chpasswd
+fi
 
 # =====================================================
 # DRIVERS FOR VMD / NVME / RAID
@@ -211,8 +237,8 @@ https://get.zfsbootmenu.org/efi
 # UEFI ENTRY
 # =====================================================
 efibootmgr -c \
--d $(lsblk -no PKNAME "$EFI") \
--p $(lsblk -no PARTNUM "$EFI") \
+-d /dev/$EFI_DISK \
+-p $EFI_PART \
 -L "ZFSBootMenu" \
 -l '\EFI\ZBM\VMLINUZ.EFI'
 
@@ -231,8 +257,14 @@ chroot /mnt /root/chroot.sh
 # =========================================================
 echo "🚪 Cleaning up..."
 
-umount -R /mnt
-zpool export zroot
+# Kill any processes still using the chroot
+fuser -km /mnt 2>/dev/null || true
+sleep 1
+
+# Recursive unmount with lazy fallback
+umount -R /mnt 2>/dev/null || umount -Rl /mnt 2>/dev/null || true
+
+zpool export zroot 2>/dev/null || zpool export -f zroot 2>/dev/null || true
 
 echo "✅ INSTALL COMPLETE"
 echo "👉 reboot now"
