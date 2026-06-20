@@ -134,14 +134,20 @@ clean_previous() {
 }
 
 sync_project_into_iso_includes() {
-    log_step "Installing zfsinstall.sh into ISO"
+    log_step "Installing zfsinstall.sh and ZBM EFI into ISO"
 
     # Install zfsinstall.sh to /usr/bin so it's in PATH in the live image
     local usr_bin_dir="$LB_CONFIG_DIR/includes.chroot/usr/bin"
     mkdir -p "$usr_bin_dir"
     cp -a "$PROJECT_DIR/install/zfsinstall.sh" "$usr_bin_dir/zfsinstall"
 
+    # Install pre-built ZBM EFI files (with RAID modules)
+    local zbm_dir="$LB_CONFIG_DIR/includes.chroot/usr/share/zbm"
+    mkdir -p "$zbm_dir"
+    cp -a "$PROJECT_DIR/zbm/"* "$zbm_dir/"
+
     log_info "zfsinstall.sh installed to /usr/bin/zfsinstall"
+    log_info "ZBM EFI files installed to /usr/share/zbm/"
 }
 
 ###############################################################################

@@ -145,6 +145,11 @@ mount --rbind /sys /mnt/sys
 # =========================================================
 # 9. CHROOT SCRIPT (REAL SYSTEM SETUP)
 # =========================================================
+
+# Copy pre-built ZBM EFI into chroot for installation
+mkdir -p /mnt/root/zbm
+cp /usr/share/zbm/* /mnt/root/zbm/
+
 cat > /mnt/root/chroot.sh <<EOF
 #!/bin/bash
 set -e
@@ -188,10 +193,7 @@ apt install -y \
   systemd-sysv \
   zfsutils-linux \
   initramfs-tools \
-  efibootmgr \
-  dracut \
-  dracut-network \
-  jq
+  efibootmgr
 
 echo "$HOST" > /etc/hostname
 
@@ -229,12 +231,12 @@ update-initramfs -u -k all
 zpool set bootfs=zroot/ROOT/debian zroot
 
 # =====================================================
-# ZFSBOOTMENU (build locally to include all kernel modules)
+# ZFSBOOTMENU (use pre-built EFI with RAID modules)
 # =====================================================
 mkdir -p /boot/efi/EFI/ZBM
 
-# Install zfsbootmenu (pre-built EFI, no RAID kernel modules)
-curl -Lo /boot/efi/EFI/ZBM/VMLINUZ.EFI https://get.zfsbootmenu.org/efi
+# Copy pre-built ZBM EFI files bundled in the live ISO
+cp /root/zbm/VMLINUZ.EFI /boot/efi/EFI/ZBM/VMLINUZ.EFI
 
 # =====================================================
 # UEFI ENTRY
