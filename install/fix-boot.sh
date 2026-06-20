@@ -74,6 +74,8 @@ MOUNTED=false
 CHROOT_MOUNTS=false
 
 cleanup() {
+    fuser -km "$MOUNT_POINT" 2>/dev/null || true
+    sleep 1
     if [ "$CHROOT_MOUNTS" = true ]; then
         umount -lf "$MOUNT_POINT/dev/pts" 2>/dev/null || true
         umount -lf "$MOUNT_POINT/dev"     2>/dev/null || true
@@ -85,6 +87,7 @@ cleanup() {
     fi
     if [ "$MOUNTED" = true ]; then
         zfs unmount -r "$POOL_NAME" 2>/dev/null || true
+        sleep 1
         zpool export "$POOL_NAME"   2>/dev/null || true
     fi
     rmdir "$MOUNT_POINT" 2>/dev/null || true
@@ -116,8 +119,9 @@ run mkdir -p "$MOUNT_POINT"
 if [ "$(zfs get -H -o value mounted "$DATASET" 2>/dev/null)" = "yes" ]; then
     EXISTING_MP=$(findmnt -n -o TARGET -S "$DATASET" 2>/dev/null || echo "")
     if [ -n "$EXISTING_MP" ]; then
-        log_info "Dataset already mounted at $EXISTING_MP, using that"
+        log_info "Dataset already mounted at $EXISTING_MP, reusing (no export on cleanup)"
         MOUNT_POINT="$EXISTING_MP"
+        MOUNTED=false
     fi
 else
     run zpool import -N -R "$MOUNT_POINT" "$POOL_NAME" 2>/dev/null || true

@@ -89,7 +89,7 @@ detect_raid_array() {
     # Check if it's a software RAID device (mdadm)
     if [[ "$disk" == /dev/md* ]]; then
         log_info "Detected mdadm RAID array: $disk"
-        cat "$disk" 2>/dev/null || true
+        dd if="$disk" of=/dev/null bs=512 count=1 2>/dev/null || true
         return 0
     fi
     
@@ -565,13 +565,23 @@ require_gpt_disk() {
         exit 1
     fi
 
-    if ! grep -q "GPT" /tmp/sgdisk-layout.$$; then
+    if grep -qi "gpt" /tmp/sgdisk-layout.$$; then
         rm -f /tmp/sgdisk-layout.$$
-        log_error "$DISK must use GPT for --use-free-space mode"
-        exit 1
+        return 0
     fi
 
     rm -f /tmp/sgdisk-layout.$$
+
+    # Fallback: check with fdisk if sgdisk didn't find GPT
+    if command -v fdisk >/dev/null 2>&1; then
+        if fdisk -l "$DISK" 2>/dev/null | grep -qi "disklabel.*gpt\|gpt\|gpt partition"; then
+            log_info "GPT detected by fdisk (fallback)"
+            return 0
+        fi
+    fi
+
+    log_error "$DISK must use GPT for --use-free-space mode"
+    exit 1
 }
 
 find_existing_efi_part() {
@@ -751,7 +761,8 @@ install_packages() {
         dosfstools \
         efibootmgr \
         cpio \
-        kexec-tools
+        kexec-tools \
+        mdadm
 }
 
 prepare_disk() {
@@ -1032,7 +1043,8 @@ apt install -y \
     curl \
     systemd-zram-generator \
     cpio \
-    kexec-tools
+    kexec-tools \
+    mdadm
 
 # Verify kernel installation
 log_info "Verifying kernel installation..."
@@ -1367,6 +1379,10 @@ finalize() {
     log_step "Finalizing installation"
 
     # Exit chroot
+    log_info "Killing processes holding mount points..."
+    run_cmd fuser -km "$MOUNT_POINT" 2>/dev/null || true
+    sleep 1
+
     log_info "Unmounting filesystems..."
     run_cmd umount -lf "$MOUNT_POINT/dev/pts" 2>/dev/null || true
     run_cmd umount -lf "$MOUNT_POINT/dev" 2>/dev/null || true
@@ -1374,6 +1390,9 @@ finalize() {
     run_cmd umount -lf "$MOUNT_POINT/sys" 2>/dev/null || true
     run_cmd umount -lf "$MOUNT_POINT/boot/efi" 2>/dev/null || true
     run_cmd umount -n -R "$MOUNT_POINT" 2>/dev/null || true
+
+    # Force unmount all pool datasets
+    run_cmd zfs unmount -r "$POOL_NAME" 2>/dev/null || true
 
     # Export pool (retry if busy)
     log_info "Exporting ZFS pool..."
