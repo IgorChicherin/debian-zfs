@@ -63,7 +63,7 @@ git clone <this repository>
 cd debian-zfs
 ```
 
-Or if using the custom ISO built from this project, scripts are already at `/root/debian-zfs/`.
+Or if using the custom ISO built from this project, scripts are at `/opt/debian-zfs/` and available globally (just run `zfs-install.sh`).
 
 ### 2. Install ZFS Root
 
@@ -92,7 +92,7 @@ sudo bash install/zfs-install.sh --disk /dev/md127 --use-free-space
 If ZFSBootMenu shows **"no boot environments found"** after reboot, boot back into the live ISO and run:
 
 ```bash
-sudo bash /root/debian-zfs/install/fix-boot.sh
+sudo fix-boot.sh
 ```
 
 This automatically:
@@ -117,7 +117,7 @@ sudo bash install/zram-config.sh
 
 ## 🛠 Building Custom ISO
 
-The ISO includes all project scripts at `/root/debian-zfs/` so no cloning is needed.
+The ISO includes all project scripts at `/opt/debian-zfs/` (in PATH) so no cloning is needed.
 
 ```bash
 # Install dependencies:
@@ -167,15 +167,15 @@ bash scripts/test-vm.sh --disk /dev/sdX
 Boot from live ISO and run the fix script:
 
 ```bash
-sudo bash /root/debian-zfs/install/fix-boot.sh
+sudo fix-boot.sh
 # or with explicit EFI partition:
-sudo bash /root/debian-zfs/install/fix-boot.sh --efi-disk /dev/sda --efi-part 1
+sudo fix-boot.sh --efi-disk /dev/sda --efi-part 1
 ```
 
 ### ZFSBootMenu: "failed to find kernels"
 
 ```bash
-sudo bash /root/debian-zfs/install/zbm-check-kernels.sh \
+sudo zbm-check-kernels.sh \
     --pool zroot --dataset ROOT/trixie --fix
 ```
 
