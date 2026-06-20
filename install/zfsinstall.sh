@@ -188,7 +188,10 @@ apt install -y \
   systemd-sysv \
   zfsutils-linux \
   initramfs-tools \
-  efibootmgr
+  efibootmgr \
+  dracut \
+  dracut-network \
+  jq
 
 echo "$HOST" > /etc/hostname
 
@@ -226,12 +229,12 @@ update-initramfs -u -k all
 zpool set bootfs=zroot/ROOT/debian zroot
 
 # =====================================================
-# ZFSBOOTMENU
+# ZFSBOOTMENU (build locally to include all kernel modules)
 # =====================================================
 mkdir -p /boot/efi/EFI/ZBM
 
-curl -Lo /boot/efi/EFI/ZBM/VMLINUZ.EFI \
-https://get.zfsbootmenu.org/efi
+# Install zfsbootmenu (pre-built EFI, no RAID kernel modules)
+curl -Lo /boot/efi/EFI/ZBM/VMLINUZ.EFI https://get.zfsbootmenu.org/efi
 
 # =====================================================
 # UEFI ENTRY

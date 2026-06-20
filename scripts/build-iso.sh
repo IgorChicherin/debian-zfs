@@ -223,6 +223,23 @@ raid0
 raid1
 raid10
 MODEOF
+
+    # Configure mdadm for Intel IMSM (RST) auto-assembly
+    mkdir -p config/includes.chroot/etc/mdadm
+    cat > config/includes.chroot/etc/mdadm/mdadm.conf <<MDADMEOF
+DEVICE /dev/sd* /dev/nvme*
+ARRAY metadata=imsm
+MDADMEOF
+
+    # Enable mdadm assembly in the chroot
+    mkdir -p config/hooks/live
+    cat > config/hooks/live/mdadm.hook.chroot <<HOOKEOF
+#!/bin/bash
+systemctl enable mdadm-assemble.service 2>/dev/null || true
+update-initramfs -u -k all 2>/dev/null || true
+HOOKEOF
+    chmod +x config/hooks/live/mdadm.hook.chroot
+
     log_info "Includes copied"
 
     log_info "live-build configuration ready"
