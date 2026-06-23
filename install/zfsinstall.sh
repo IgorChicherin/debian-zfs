@@ -193,7 +193,11 @@ apt install -y \
   systemd-sysv \
   zfsutils-linux \
   initramfs-tools \
-  efibootmgr
+  efibootmgr \
+  kde-plasma-desktop \
+  sddm \
+  nvidia-driver \
+  firmware-nvidia-gsp
 
 echo "$HOST" > /etc/hostname
 

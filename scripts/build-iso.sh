@@ -210,6 +210,14 @@ setup_live_build() {
     cat >> config/package-lists/raid.list.chroot <<RAIDEOF
 mdadm
 RAIDEOF
+
+    # Add desktop and NVIDIA proprietary drivers
+    cat >> config/package-lists/desktop.list.chroot <<DESKTOPEOF
+kde-plasma-desktop
+sddm
+nvidia-driver
+firmware-nvidia-gsp
+DESKTOPEOF
     log_info "Package lists copied"
 
     # Includes
