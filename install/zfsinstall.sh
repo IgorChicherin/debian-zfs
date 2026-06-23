@@ -195,9 +195,7 @@ apt install -y \
   initramfs-tools \
   efibootmgr \
   kde-plasma-desktop \
-  sddm \
-  nvidia-driver \
-  firmware-nvidia-gsp
+  sddm 
 
 echo "$HOST" > /etc/hostname
 
