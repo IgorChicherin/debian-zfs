@@ -52,8 +52,8 @@ qemu-system-x86_64 \
 #### Автоматизированный тест
 
 ```bash
-# Использовать скрипт test-vm.sh
-bash scripts/test-vm.sh output/debian-zfs.iso
+# Использовать скрипт test-vm.py
+python3 scripts/test-vm.py output/debian-zfs.iso
 ```
 
 ### 2. Тестирование на отдельном диске
@@ -75,7 +75,7 @@ fdisk -l
 ```bash
 # Загрузиться с Live USB
 # Выполнить скрипт установки
-sudo bash install/zfs-install.sh --disk /dev/sdX
+sudo python3 install/zfs-install.py --disk /dev/sdX
 ```
 
 #### Первая загрузка
@@ -365,7 +365,7 @@ sudo bash test-zfs-install.sh
 ```bash
 # Лог установки
 script -t 2>install-time.log -a install.log
-bash install/zfs-install.sh --disk /dev/sdX
+python3 install/zfs-install.py --disk /dev/sdX
 exit
 
 # Логи системы

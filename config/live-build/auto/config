@@ -1,0 +1,43 @@
+#!/bin/bash
+# Live build auto config
+# This file is sourced by lb config
+
+set -e
+
+# Architecture
+ARCHITECTURE="amd64"
+
+# Distribution
+DISTRIBUTION="trixie"   # unused: scripts/build-iso.py runs lb config itself
+
+# Binary format
+BINARY_FILESYSTEM="iso"
+BINARY_IMAGES="iso-hybrid"
+
+# Bootloader
+BOOTAPPEND_LIVE="persistent"
+
+# Chroot
+CHROOT_FILESYSTEM="squashfs"
+
+# Mirror
+MIRROR_BOOTSTRAP="http://deb.debian.org/debian"
+MIRROR_CHROOT_SECURITY="http://deb.debian.org/debian-security"
+MIRROR_CHROOT_UPDATES="http://deb.debian.org/debian"
+
+# Archive areas (include contrib and non-free for ZFS and firmware)
+ARCHIVE_AREAS="main contrib non-free non-free-firmware"
+
+# Cache
+APT_RECOMMENDS="false"
+APT_SUGGESTS="false"
+APT_OPTIONS="--no-install-recommends"
+
+# Binary
+BINARY_INDICES="enabled"
+MEMTEST="none"
+
+# Hooks
+BUILD_WITH_CHROOT="true"
+
+echo "Live build configuration loaded"

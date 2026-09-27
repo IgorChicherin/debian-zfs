@@ -4,9 +4,9 @@
 
 ### OpenZFS и Debian
 
-1. **[OpenZFS — Debian Bookworm](https://openzfs.github.io/openzfs-docs/Getting%20Started/Debian/index.html)**
+1. **[OpenZFS — Debian](https://openzfs.github.io/openzfs-docs/Getting%20Started/Debian/index.html)**
    - Официальная документация OpenZFS
-   - Актуальная версия: 2.3.2+ (bookworm-backports)
+   - Актуальная версия: 2.3.x (Debian 13 trixie, contrib)
    - Дата проверки: Апрель 2026
 
 2. **[Debian Wiki — ZFS](https://wiki.debian.org/ZFS)**
@@ -22,7 +22,7 @@
 
 4. **[ZFSBootMenu Documentation](https://docs.zfsbootmenu.org/)**
    - Версия: 3.1.x
-   - Руководство по Debian Bookworm: `/guides/debian/bookworm-uefi.html`
+   - Руководства по Debian: раздел `/guides/debian/`
    - Changelog: `/en/v3.1.x/CHANGELOG.html`
    - Обновлено: Январь 2026
 
@@ -43,17 +43,17 @@
 
 ## 🛠 Инструменты и пакеты
 
-### Версии пакетов (Апрель 2026)
+### Версии пакетов (Debian 13 trixie / sid)
 
 | Пакет | Версия | Репозиторий | Примечание |
 |-------|--------|-------------|------------|
-| zfsutils-linux | 2.3.2-2~bpo012+2 | bookworm-backports | Основная утилита |
-| zfs-initramfs | 2.3.2-2~bpo012+2 | bookworm-backports | Initramfs модуль |
-| zfs-dkms | 2.3.2-2~bpo012+2 | bookworm-backports | DKMS модуль |
+| zfsutils-linux | 2.3.x | trixie / sid (contrib) | Основная утилита |
+| zfs-initramfs | 2.3.x | trixie / sid (contrib) | Initramfs модуль |
+| zfs-dkms | 2.3.x | trixie / sid (contrib) | DKMS модуль |
 | ZFSBootMenu | 3.1.x | get.zfsbootmenu.org | Prebuilt EFI |
-| systemd-zram-generator | 1.1.2+ | bookworm | Рекомендуемый |
-| zram-tools | 1.2.x | bookworm | Альтернатива |
-| linux-image-amd64 | 6.1.x LTS | bookworm | Debian stable |
+| systemd-zram-generator | — | trixie / sid | Рекомендуемый |
+| zram-tools | — | trixie / sid | Альтернатива |
+| linux-image-amd64 | 6.12 LTS (trixie), новейшее (sid) | trixie / sid | |
 
 ### Важные изменения в 2025-2026
 
@@ -104,7 +104,7 @@
 
 - ✅ ZFSBootMenu теперь 3.1.x (было 2.x)
 - ✅ systemd-zram-generator предпочтительнее zram-tools
-- ✅ OpenZFS 2.3.x в backports (было 2.1.x)
+- ✅ OpenZFS 2.3.x в Debian 13 (contrib), backports больше не нужны
 - ✅ Новая опция compatibility=openzfs-2.2-linux
 - ✅ Улучшена документация по шифрованию
 
@@ -127,7 +127,7 @@ strings /boot/efi/EFI/ZBM/VMLINUZ.EFI | grep -i version
 # Проверка версии ядра
 uname -r
 
-# Проверка доступных версий в backports
+# Проверка доступных версий
 apt-cache madison zfsutils-linux
 ```
 

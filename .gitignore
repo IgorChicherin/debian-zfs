@@ -7,8 +7,6 @@ output/
 
 # Live build рабочие директории
 live-build-work/
-auto/
-config/
 cache/
 
 # Временные файлы

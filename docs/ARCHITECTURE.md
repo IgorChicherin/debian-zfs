@@ -260,14 +260,23 @@ apt install \
   systemd-zram-generator
 ```
 
-### Настройка APT Priorities
+### Источники APT
 
-Файл: `/etc/apt/preferences.d/90_zfs`
+Debian 13 (trixie) и sid содержат OpenZFS 2.3 в `contrib` — backports и пиннинг
+не нужны. Установщик пишет `/etc/apt/sources.list.d/debian.sources` (deb822):
 
 ```
-Package: src:zfs-linux
-Pin: release n=bookworm-backports
-Pin-Priority: 990
+Types: deb
+URIs: http://deb.debian.org/debian
+Suites: trixie trixie-updates          # sid: только "sid"
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: http://deb.debian.org/debian-security
+Suites: trixie-security                # для sid отсутствует
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 ```
 
 ## 🔧 Initramfs и DKMS

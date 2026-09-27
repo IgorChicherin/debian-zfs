@@ -1,0 +1,86 @@
+# Package list for ZFS-enabled Live ISO
+# These packages will be included in the chroot environment
+
+# ZFS packages (contrib)
+zfsutils-linux
+zfs-dkms
+zfs-initramfs
+
+# Installer runtime
+python3
+
+# Boot and EFI
+efibootmgr
+dosfstools
+curl
+cpio
+kexec-tools
+
+# ZRAM
+systemd-zram-generator
+
+# System utilities
+debootstrap
+gdisk
+dkms
+linux-headers-amd64
+linux-image-amd64
+
+# Network (NetworkManager: run 'nmtui' to join Wi-Fi)
+network-manager
+wpasupplicant
+iw
+wireless-regdb
+# (MacBook Broadcom Wi-Fi driver: build-iso.py --macbook adds
+#  config/live-build/optional/macbook.list.chroot)
+openssh-server
+iproute2
+net-tools
+wget
+
+# Filesystem tools
+btrfs-progs
+xfsprogs
+lvm2
+
+# RAID (Intel RST / firmware RAID via mdadm, dracut for custom ZFSBootMenu)
+mdadm
+dracut-core
+
+# Diagnostics
+smartmontools
+pciutils
+usbutils
+lm-sensors
+hwinfo
+parted
+
+# Editors
+nano
+vim
+
+# Shell utilities
+tmux
+screen
+htop
+iotop
+sysstat
+
+# Documentation
+man-db
+manpages
+
+# Localization
+locales
+keyboard-configuration
+console-setup
+tzdata
+
+# Extra firmware (all in non-free-firmware component)
+firmware-linux
+firmware-linux-nonfree
+firmware-misc-nonfree
+firmware-realtek
+firmware-atheros
+firmware-brcm80211
+firmware-iwlwifi

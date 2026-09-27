@@ -1,0 +1,9 @@
+# Prefer ZFS packages from backports
+Package: zfsutils-linux zfs-dkms zfs-initramfs
+Pin: release n=bookworm-backports
+Pin-Priority: 990
+
+# Allow fallback to regular bookworm if backports unavailable
+Package: zfsutils-linux zfs-dkms zfs-initramfs
+Pin: release n=bookworm
+Pin-Priority: 500
