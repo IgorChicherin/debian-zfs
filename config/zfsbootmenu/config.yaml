@@ -1,0 +1,27 @@
+# ZFSBootMenu configuration (/etc/zfsbootmenu/config.yaml)
+#
+# Reference copy. zfsbootmenu-setup.sh writes the real file; with --mdraid it
+# uses this layout, including rd.auto=1 which is REQUIRED for dracut to
+# assemble Intel RST / mdadm arrays inside ZFSBootMenu.
+
+Global:
+  ManageImages: true
+  BootMountPoint: /boot/efi
+  DracutConfDir: /etc/zfsbootmenu/dracut.conf.d
+  PreHooksDir: /etc/zfsbootmenu/generate-zbm.pre.d
+  PostHooksDir: /etc/zfsbootmenu/generate-zbm.post.d
+  InitCPIOConfig: /etc/zfsbootmenu/mkinitcpio.conf
+
+Components:
+  ImageDir: /boot/efi/EFI/ZBM
+  Versions: 3
+  Enabled: false
+
+EFI:
+  ImageDir: /boot/efi/EFI/ZBM
+  Versions: false
+  Enabled: true
+
+Kernel:
+  Prefix: vmlinuz
+  CommandLine: quiet loglevel=4 rd.auto=1
