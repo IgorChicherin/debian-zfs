@@ -14,6 +14,7 @@ import sys
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(PROJECT_DIR, "install"))
 
+import devices as dv  # noqa: E402
 import dzlib as dz  # noqa: E402
 from dzlib import die, info, step, warn  # noqa: E402
 
@@ -27,7 +28,7 @@ def system_disks():
     for mp in ("/", "/boot", "/boot/efi", "/home"):
         src = dz.out(["findmnt", "-n", "-o", "SOURCE", mp])
         if src.startswith("/dev/"):
-            disks.add(dz.parent_kname(src))
+            disks.add(dv.parent_kname(src))
             for h in dz.out(["lsblk", "-s", "-n", "-o", "KNAME", src]).split():
                 disks.add(h)
     return disks
@@ -39,7 +40,7 @@ def pick_device(devices, protected):
                  or "usb" in dz.out(["lsblk", "-dn", "-o", "TRAN", d["path"]])]
     listing = removable or cands
     idx = dz.choose("USB drive to overwrite%s:" % ("" if removable else " (no removable drives detected!)"),
-                    [dz.describe(d) for d in listing])
+                    [dv.describe(d) for d in listing])
     if idx is None:
         die("Cancelled")
     return listing[idx]["path"]
@@ -80,15 +81,15 @@ def main():
     dz.require_root()
 
     if not os.path.isfile(a.iso):
-        die("ISO not found: %s (build it with: sudo python3 scripts/build-iso.py)" % a.iso)
-    devices = dz.lsblk_devices()
+        die("ISO not found: %s (build it with: sudo python3 scripts/build_iso.py)" % a.iso)
+    devices = dv.lsblk_devices()
     protected = system_disks()
     dev = a.device or pick_device(devices, protected)
     if not os.path.exists(dev):
         die("Device not found: %s" % dev)
-    if dz.part_number(dev):
+    if dv.part_number(dev):
         die("%s is a partition — give the whole drive (e.g. /dev/sdb)" % dev)
-    if dz.kname(dev) in protected:
+    if dv.kname(dev) in protected:
         die("%s holds the running system — refusing to overwrite it" % dev)
 
     size = dz.human_size(int(dz.out(["blockdev", "--getsize64", dev], "0")))
@@ -100,7 +101,7 @@ def main():
 
     step("Unmounting %s" % dev)
     for d in devices:
-        if (d.get("kname") == dz.kname(dev) or d.get("pkname") == dz.kname(dev)) and d.get("mountpoint"):
+        if (d.get("kname") == dv.kname(dev) or d.get("pkname") == dv.kname(dev)) and d.get("mountpoint"):
             dz.run(["umount", d["path"]], check=False)
 
     step("Writing %s (%s)" % (a.iso, dz.human_size(os.path.getsize(a.iso))))

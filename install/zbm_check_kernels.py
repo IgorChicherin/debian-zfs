@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""zbm-check-kernels.py — check (and fix) why ZFSBootMenu "failed to find kernels".
+"""zbm_check_kernels.py — check (and fix) why ZFSBootMenu "failed to find kernels".
 
 ZFSBootMenu boots kernels from <dataset>/boot (vmlinuz-* + initrd.img-*).
 This mounts the root dataset read-write at a temporary path (without
@@ -8,8 +8,8 @@ ZFSBootMenu properties and, with --fix, reinstalls the kernel and rebuilds
 the initramfs INSIDE that dataset via chroot.
 
 Examples:
-  zbm-check-kernels.py --pool zroot                 # dataset from the pool's bootfs
-  zbm-check-kernels.py --pool zroot --dataset ROOT/trixie --fix
+  zbm_check_kernels.py --pool zroot                 # dataset from the pool's bootfs
+  zbm_check_kernels.py --pool zroot --dataset ROOT/trixie --fix
 """
 
 import argparse
@@ -84,7 +84,7 @@ def fix(root, running_system):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="zbm-check-kernels.py", description=__doc__.split("\n\n")[0],
+    ap = argparse.ArgumentParser(prog="zbm_check_kernels.py", description=__doc__.split("\n\n")[0],
                                  epilog="\n\n".join(__doc__.split("\n\n")[1:]),
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pool", default="zroot")

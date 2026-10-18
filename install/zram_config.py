@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""zram-config.py — ZRAM compressed swap via systemd-zram-generator.
+"""zram_config.py — ZRAM compressed swap via systemd-zram-generator.
 
 Examples:
-  zram-config.py                              # 60% of RAM (max 4 GiB), zstd, swap
-  zram-config.py --size 8192 --algorithm lz4  # 8 GiB with lz4
-  zram-config.py --size "ram / 2"             # any zram-generator expression
-  zram-config.py --status
-  zram-config.py --remove
+  zram_config.py                              # 60% of RAM (max 4 GiB), zstd, swap
+  zram_config.py --size 8192 --algorithm lz4  # 8 GiB with lz4
+  zram_config.py --size "ram / 2"             # any zram-generator expression
+  zram_config.py --status
+  zram_config.py --remove
 """
 
 import argparse
@@ -113,7 +113,7 @@ def activate(a):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="zram-config.py", description=__doc__.split("\n\n")[0],
+    ap = argparse.ArgumentParser(prog="zram_config.py", description=__doc__.split("\n\n")[0],
                                  epilog="\n\n".join(__doc__.split("\n\n")[1:]),
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--size", default="min(ram * 0.6, 4096)",

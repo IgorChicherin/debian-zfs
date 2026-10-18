@@ -1,8 +1,9 @@
 # Installer shortcuts for the live environment (sourced by bash — keep shell)
-alias zfs-install='sudo python3 /root/install/zfs-install.py'
-alias zfsbootmenu-setup='sudo python3 /root/install/zfsbootmenu-setup.py'
-alias zram-setup='sudo python3 /root/install/zram-config.py'
-alias zbm-check='sudo python3 /root/install/zbm-check-kernels.py'
+alias zfs-install='sudo python3 /root/install/debian_zfs_install.py'
+alias zfsbootmenu-setup='sudo python3 /root/install/zbm_setup.py'
+alias zram-setup='sudo python3 /root/install/zram_config.py'
+alias zbm-check='sudo python3 /root/install/zbm_check_kernels.py'
+alias zbm-rescue='sudo python3 /root/install/mdraid_rescue.py'
 
 zfs-help() {
     cat << 'HELP'
@@ -11,6 +12,7 @@ Commands:
   zfsbootmenu-setup     (Re)install ZFSBootMenu (--mdraid for Intel RST RAID)
   zram-setup            Configure ZRAM swap
   zbm-check             Check/fix "failed to find kernels"
+  zbm-rescue            Repair an installed system on an Intel RST / md RAID that does not boot
 
 Install targets:
   zfs-install --interactive

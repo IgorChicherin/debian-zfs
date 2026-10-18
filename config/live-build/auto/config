@@ -8,7 +8,7 @@ set -e
 ARCHITECTURE="amd64"
 
 # Distribution
-DISTRIBUTION="trixie"   # unused: scripts/build-iso.py runs lb config itself
+DISTRIBUTION="trixie"   # unused: scripts/build_iso.py runs lb config itself
 
 # Binary format
 BINARY_FILESYSTEM="iso"

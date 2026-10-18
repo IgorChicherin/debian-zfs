@@ -47,19 +47,19 @@ Replace `/dev/md126` with your RAID **volume** (see step 1):
 
 ```bash
 # Dry run first (safe, no changes)
-sudo python3 install/zfs-install.py --disk /dev/md126 --dry-run
+sudo python3 install/debian_zfs_install.py --disk /dev/md126 --dry-run
 
 # Actual installation (will destroy data on RAID device!)
-sudo python3 install/zfs-install.py --disk /dev/md126
+sudo python3 install/debian_zfs_install.py --disk /dev/md126
 
 # With encryption
-sudo python3 install/zfs-install.py --disk /dev/md126 --encrypt
+sudo python3 install/debian_zfs_install.py --disk /dev/md126 --encrypt
 
 # Custom hostname
-sudo python3 install/zfs-install.py --disk /dev/md126 --hostname myserver
+sudo python3 install/debian_zfs_install.py --disk /dev/md126 --hostname myserver
 
 # All options
-sudo python3 install/zfs-install.py --disk /dev/md126 \
+sudo python3 install/debian_zfs_install.py --disk /dev/md126 \
     --hostname myserver \
     --password MyRootPass \
     --pool-name zpool \
@@ -156,6 +156,17 @@ sudo chroot /mnt /bin/bash
 
 ## Troubleshooting
 
+### ZFSBootMenu shows no pool, or the kernel drops to an initramfs shell
+
+Boot the live ISO and run the guided repair (alias `zbm-rescue`):
+
+```bash
+sudo python3 install/mdraid_rescue.py
+```
+
+It assembles the arrays, imports the pool under `/mnt`, mounts the system and runs `zbm_setup.py --mdraid --update`
+inside it.
+
 ### RAID not detected at boot
 
 1. Check RAID in BIOS/UEFI - ensure it's still enabled
@@ -176,7 +187,7 @@ builds ZFSBootMenu locally with RAID support. For systems installed earlier,
 run this from the installed system (or its chroot):
 
 ```bash
-sudo python3 install/zfsbootmenu-setup.py --mdraid
+sudo python3 install/zbm_setup.py --mdraid
 ```
 
 This:
@@ -219,7 +230,7 @@ mdadm --assemble --scan
 zpool import -N -R /mnt zroot
 zfs mount zroot/ROOT/trixie && mount /dev/md126p1 /mnt/boot/efi
 for d in dev proc sys; do mount --rbind /$d /mnt/$d; done
-chroot /mnt bash /root/debian-zfs/install/zfsbootmenu-setup.py --mdraid   # path to your checkout
+chroot /mnt bash /root/debian-zfs/install/zbm_setup.py --mdraid   # path to your checkout
 ```
 
 **Rebuild after upgrades:** the ZBM image has its own copy of ZFS and mdadm.
@@ -230,7 +241,7 @@ or mdadm.
 
 Run the kernel check script:
 ```bash
-sudo python3 install/zbm-check-kernels.py --pool zroot --dataset ROOT/trixie --fix
+sudo python3 install/zbm_check_kernels.py --pool zroot --dataset ROOT/trixie --fix
 ```
 
 ### Can't access ZFS after boot
@@ -246,7 +257,7 @@ sudo zfs load-key -L prompt zroot/ROOT/trixie
 
 Check status:
 ```bash
-sudo python3 install/zram-config.py --status
+sudo python3 install/zram_config.py --status
 ```
 
 Reactivate if needed:
@@ -300,10 +311,9 @@ NAME      ALGORITHM DISKSIZE DATA  COMPR TOTAL STREAMS MOUNTPOINT
 
 ## Need Help?
 
-1. Check the detailed docs: `docs/FIXES_AND_RAID_SUPPORT.md`
-2. Try `--dry-run` to see what would happen
-3. Check logs: `journalctl -xe`
-4. Search: "ZFS + your issue" on Ubuntu/Debian forums
+1. Try `--dry-run` to see what would happen
+2. Check logs: `journalctl -xe`
+3. Search: "ZFS + your issue" on Ubuntu/Debian forums
 
 ---
 

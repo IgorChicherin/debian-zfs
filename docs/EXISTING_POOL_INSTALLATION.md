@@ -67,7 +67,7 @@ zfs create -o mountpoint=/var/log zroot/var-log
 Let the script guide you through pool and EFI selection:
 
 ```bash
-sudo python3 install/zfs-install.py --use-existing-pool
+sudo python3 install/debian_zfs_install.py --use-existing-pool
 ```
 
 The script will:
@@ -83,7 +83,7 @@ The script will:
 If you know your pool name and EFI partition:
 
 ```bash
-sudo python3 install/zfs-install.py \
+sudo python3 install/debian_zfs_install.py \
     --pool zroot \
     --efi-device /dev/sda1
 ```
@@ -91,7 +91,7 @@ sudo python3 install/zfs-install.py \
 Optional parameters:
 
 ```bash
-sudo python3 install/zfs-install.py \
+sudo python3 install/debian_zfs_install.py \
     --pool zroot \
     --efi-device /dev/sda1 \
     --hostname myserver \
@@ -104,7 +104,7 @@ sudo python3 install/zfs-install.py \
 For complete guided setup:
 
 ```bash
-sudo python3 install/zfs-install.py --interactive
+sudo python3 install/debian_zfs_install.py --interactive
 ```
 
 This will:
@@ -169,13 +169,13 @@ cd debian-zfs
 ### Step 4: Run Interactive Installation
 
 ```bash
-sudo python3 install/zfs-install.py --use-existing-pool
+sudo python3 install/debian_zfs_install.py --use-existing-pool
 ```
 
 Or with explicit parameters:
 
 ```bash
-sudo python3 install/zfs-install.py \
+sudo python3 install/debian_zfs_install.py \
     --pool zroot \
     --efi-device /dev/sda1 \
     --hostname debian-zfs \
@@ -211,7 +211,7 @@ sudo zpool list
 # zroot  500G   ...
 
 # Install on existing pool
-sudo python3 install/zfs-install.py \
+sudo python3 install/debian_zfs_install.py \
     --pool zroot \
     --efi-device /dev/sda1
 ```
@@ -225,7 +225,7 @@ sudo python3 install/zfs-install.py \
 sudo zpool create -f zroot /dev/dm-0
 
 # Then install
-sudo python3 install/zfs-install.py \
+sudo python3 install/debian_zfs_install.py \
     --pool zroot \
     --efi-device /dev/sda1 \
     --hostname raid-server
@@ -237,7 +237,7 @@ sudo python3 install/zfs-install.py \
 
 ```bash
 # Let script guide you
-sudo python3 install/zfs-install.py --use-existing-pool
+sudo python3 install/debian_zfs_install.py --use-existing-pool
 
 # Output:
 # Available pools:
@@ -252,7 +252,7 @@ sudo python3 install/zfs-install.py --use-existing-pool
 **Scenario:** Install on encrypted pool
 
 ```bash
-sudo python3 install/zfs-install.py \
+sudo python3 install/debian_zfs_install.py \
     --pool zroot \
     --efi-device /dev/sda1 \
     --encrypt \
@@ -415,16 +415,14 @@ sudo zfs rollback zroot/ROOT/trixie@initial
 - **Dry run:** Add `--dry-run` to see what would happen
 - **Logs:** Check `journalctl -xe` after any errors
 - **Pool info:** `zpool list`, `zfs list`, `zpool status`
-- **Script help:** `python3 install/zfs-install.py --help`
+- **Script help:** `python3 install/debian_zfs_install.py --help`
 
 ---
 
 ## See Also
 
-- [FIXES_AND_RAID_SUPPORT.md](docs/FIXES_AND_RAID_SUPPORT.md) - All fixes and features
 - [QUICK_START_RAID0.md](QUICK_START_RAID0.md) - Quick start guide
-- [README.md](README.md) - General documentation
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - ZFS structure
+- [README.md](../README.md) - General documentation
 
 ---
 

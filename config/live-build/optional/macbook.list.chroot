@@ -1,4 +1,4 @@
-# Added by: build-iso.py --macbook
+# Added by: build_iso.py --macbook
 # Broadcom Wi-Fi of MacBooks (BCM4331 2012, BCM4360 2013-2015), proprietary
 # 'wl' driver from non-free, built with DKMS for the live kernel.
 # Note: the package blacklists b43/brcmsmac/bcma/ssb on every machine that

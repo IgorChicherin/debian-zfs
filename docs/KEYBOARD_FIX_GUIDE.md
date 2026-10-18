@@ -12,10 +12,10 @@ Your current project (`debian-zfs`) has **complete support** for this issue via 
 
 ```bash
 # Clone and run installer with MacBook support
-sudo python3 install/zfs-install.py --disk /dev/sdXY --macbook
+sudo python3 install/debian_zfs_install.py --disk /dev/sdXY --macbook
 
 # Or interactive mode (will ask)
-sudo python3 install/zfs-install.py
+sudo python3 install/debian_zfs_install.py
 # When asked "Enable MacBook drivers?", answer: y
 ```
 
@@ -25,7 +25,7 @@ If you already installed WITHOUT `--macbook`, fix now:
 
 ```bash
 # From live USB or installed system
-sudo python3 install/zfsbootmenu-setup.py --macbook
+sudo python3 install/zbm_setup.py --macbook
 ```
 
 This will:
@@ -37,7 +37,7 @@ This will:
 
 ```bash
 sudo apt install live-build
-sudo python3 scripts/build-iso.py --macbook
+sudo python3 scripts/build_iso.py --macbook
 # Use resulting .iso for all future installations
 ```
 
@@ -78,7 +78,7 @@ ls -la /etc/zfsbootmenu/hooks/early-setup.d/
 2. **Verify EFI image**: Run the verification commands above
 3. **Manual rebuild** (last resort):
    ```bash
-   sudo python3 install/zfsbootmenu-setup.py --macbook --force-rebuild
+   sudo python3 install/zbm_setup.py --macbook --force-rebuild
    ```
 
 ## For ISO Installation Only
@@ -87,7 +87,7 @@ If you're building an ISO to deploy:
 
 ```bash
 sudo apt install live-build
-sudo python3 scripts/build-iso.py \
+sudo python3 scripts/build_iso.py \
     --macbook \          # Add keyboard/Wi-Fi support
     --hostname mymac      # Set hostname
 make iso                 # Build the ISO
@@ -99,9 +99,9 @@ Then use that ISO for all A1398 installations.
 
 | Command | Purpose | When to Use |
 |---------|---------|--------------|
-| `zfs-install.py --macbook` | Fresh install with keyboard support | New system installation |
-| `zfsbootmenu-setup.py --macbook` | Add MacBook drivers to existing system | Fix broken/boot menu without keyboard |
-| `build-iso.py --macbook` | Build ISO with Wi-Fi drivers in live media | Creating deployment ISOs only |
+| `debian_zfs_install.py --macbook` | Fresh install with keyboard support | New system installation |
+| `zbm_setup.py --macbook` | Add MacBook drivers to existing system | Fix broken/boot menu without keyboard |
+| `build_iso.py --macbook` | Build ISO with Wi-Fi drivers in live media | Creating deployment ISOs only |
 
 ## Troubleshooting
 
@@ -111,7 +111,7 @@ Then use that ISO for all A1398 installations.
 efibootmgr -v
 
 # Should see "ZFSBootMenu" entry; if not, reinstall:
-sudo python3 install/zfsbootmenu-setup.py --macbook
+sudo python3 install/zbm_setup.py --macbook
 ```
 
 ### Problem: Apple Boot option missing
@@ -127,7 +127,7 @@ Built-in Broadcom Wi-Fi needs `broadcom-sta-dkms`:
 # From live media with ISO built via --macbook:
 sudo apt install broadcom-sta-dkms
 # Or after fresh install, add --macbook to reinstall ZBM
-sudo python3 install/zfsbootmenu-setup.py --macbook
+sudo python3 install/zbm_setup.py --macbook
 ```
 
 ## Summary

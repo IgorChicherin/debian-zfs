@@ -3,7 +3,7 @@
 # ZFSBootMenu scans for pools.
 #
 # Installed to /etc/zfsbootmenu/hooks/early-setup.d/ by
-# zfsbootmenu-setup.sh --mdraid. dracut's mdraid udev rules normally do this
+# zbm_setup.py --mdraid. dracut's mdraid udev rules normally do this
 # already (with rd.auto=1); this hook is a safety net for imsm volumes that
 # are left inactive or appear after udev has settled.
 

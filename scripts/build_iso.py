@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""build-iso.py — build a Debian 13 (stable) or sid live ISO with ZFS and the installer.
+"""build_iso.py — build a Debian 13 (stable) or sid live ISO with ZFS and the installer.
 
 Requirements: Debian host (or Ubuntu/WSL on a native Linux filesystem),
 live-build, debian-archive-keyring, 10 GB free space, root.
 
 Examples:
-  sudo python3 scripts/build-iso.py
-  sudo python3 scripts/build-iso.py --clean --output-dir output
-  sudo python3 scripts/build-iso.py --release sid     # unstable live system
-  sudo python3 scripts/build-iso.py --macbook         # + MacBook Broadcom Wi-Fi driver
+  sudo python3 scripts/build_iso.py
+  sudo python3 scripts/build_iso.py --clean --output-dir output
+  sudo python3 scripts/build_iso.py --release sid     # unstable live system
+  sudo python3 scripts/build_iso.py --macbook         # + MacBook Broadcom Wi-Fi driver
 
 The installer on the ISO can install either branch regardless of the
 branch the live system itself is built from.
@@ -114,9 +114,10 @@ def setup_live_build(a):
         dz.run(["mkdir", "-p", "config/package-lists"])
         dz.run(["cp", opt, "config/package-lists/"])
         info("MacBook: Broadcom Wi-Fi driver (broadcom-sta-dkms) added to the live system")
-    inc = os.path.join(LB_CONFIG_DIR, "includes.chroot")
-    if os.path.isdir(inc):
-        copy_tree(inc, "config/includes.chroot")
+    for name in ("includes.chroot", "includes.chroot_before_packages"):
+        inc = os.path.join(LB_CONFIG_DIR, name)
+        if os.path.isdir(inc):
+            copy_tree(inc, "config/" + name)
 
     # Always ship the current installer (Python scripts + shared config)
     target = "config/includes.chroot/etc/install"
@@ -159,7 +160,7 @@ def build(a):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="build-iso.py", description=__doc__.split("\n\n")[0],
+    ap = argparse.ArgumentParser(prog="build_iso.py", description=__doc__.split("\n\n")[0],
                                  epilog="\n\n".join(__doc__.split("\n\n")[1:]),
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--clean", action="store_true", help="remove previous build and output first")

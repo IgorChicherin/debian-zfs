@@ -1,26 +1,10 @@
-# Выходные файлы
 output/
+live-build-work/
 *.iso
 *.iso.sha256
 *.qcow2
 *.img
-
-# Live build рабочие директории
-live-build-work/
-cache/
-
-# Временные файлы
+__pycache__/
+*.pyc
 *.log
-*.tmp
-/tmp/qemu-*
-
-# Editor
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
+VMLINUZ.EFI

@@ -1,6 +1,6 @@
 # ZFSBootMenu configuration (/etc/zfsbootmenu/config.yaml)
 #
-# Reference copy. zfsbootmenu-setup.sh writes the real file; with --mdraid it
+# Reference copy. zbm_setup.py writes the real file; with --mdraid it
 # uses this layout, including rd.auto=1 which is REQUIRED for dracut to
 # assemble Intel RST / mdadm arrays inside ZFSBootMenu.
 

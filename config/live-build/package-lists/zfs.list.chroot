@@ -31,7 +31,7 @@ network-manager
 wpasupplicant
 iw
 wireless-regdb
-# (MacBook Broadcom Wi-Fi driver: build-iso.py --macbook adds
+# (MacBook Broadcom Wi-Fi driver: build_iso.py --macbook adds
 #  config/live-build/optional/macbook.list.chroot)
 openssh-server
 iproute2
