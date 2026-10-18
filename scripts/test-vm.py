@@ -27,9 +27,12 @@ sys.path.insert(0, os.path.join(PROJECT_DIR, "install"))
 import dzlib as dz  # noqa: E402
 from dzlib import die, info, step, warn  # noqa: E402
 
+# Debian/Ubuntu (ovmf), Arch (edk2-ovmf), Fedora (edk2-ovmf)
 OVMF_CODE = ["/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_CODE.fd",
+             "/usr/share/edk2/x64/OVMF_CODE.4m.fd", "/usr/share/edk2/ovmf/OVMF_CODE.fd",
              "/usr/share/ovmf/OVMF.fd", "/usr/share/qemu/ovmf-x86_64-code.fd"]
 OVMF_VARS = ["/usr/share/OVMF/OVMF_VARS_4M.fd", "/usr/share/OVMF/OVMF_VARS.fd",
+             "/usr/share/edk2/x64/OVMF_VARS.4m.fd", "/usr/share/edk2/ovmf/OVMF_VARS.fd",
              "/usr/share/qemu/ovmf-x86_64-vars.fd"]
 
 TMP = tempfile.mkdtemp(prefix="qemu-dz-")
@@ -78,7 +81,7 @@ def main():
     if uefi:
         code, vars_src = first_existing(OVMF_CODE), first_existing(OVMF_VARS)
         if not code or not vars_src:
-            warn("OVMF firmware not found (sudo apt install ovmf)")
+            warn("OVMF firmware not found (Debian: apt install ovmf, Arch: pacman -S edk2-ovmf)")
             if not dz.confirm("Continue with legacy BIOS?"):
                 die("Cancelled")
             uefi = False

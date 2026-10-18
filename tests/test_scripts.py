@@ -29,5 +29,20 @@ class ScriptsTest(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(ROOT, "install", name)), name)
 
 
+class LiveCommandsTest(unittest.TestCase):
+    def test_commands_exist_as_executables_for_sudo(self):
+        import stat
+        import tempfile
+        import build_iso
+        with tempfile.TemporaryDirectory() as tmp:
+            build_iso.write_commands(tmp)
+            for name, script in build_iso.COMMANDS.items():
+                path = os.path.join(tmp, name)
+                self.assertTrue(os.stat(path).st_mode & stat.S_IXUSR, name)
+                with open(path) as fh:
+                    self.assertIn("exec python3 /etc/install/%s" % script, fh.read())
+                self.assertTrue(os.path.exists(os.path.join(ROOT, "install", script)), script)
+
+
 if __name__ == "__main__":
     unittest.main()

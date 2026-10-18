@@ -32,6 +32,10 @@ WORK_DIR = os.path.join(PROJECT_DIR, "live-build-work")
 MIRROR = dz.MIRROR
 SECURITY = dz.SECURITY_MIRROR
 ISO_NAME = "debian-zfs-live.iso"
+# Commands of the live system (sudo does not expand shell aliases) -> script in /etc/install
+COMMANDS = {"zfs-install": "debian_zfs_install.py", "zfsbootmenu-setup": "zbm_setup.py",
+            "zram-setup": "zram_config.py", "zbm-check": "zbm_check_kernels.py",
+            "zbm-rescue": "mdraid_rescue.py"}
 AREAS = dz.COMPONENTS
 
 
@@ -128,7 +132,18 @@ def setup_live_build(a):
     if os.path.isdir(cfg):
         copy_tree(cfg, target + "/config/zfsbootmenu")
     dz.run(["sh", "-c", "chmod +x %s/*.py" % target])
+    if not dz.DRY_RUN:
+        write_commands("config/includes.chroot/usr/local/bin")
     info("Installer synced into the image (/etc/install)")
+
+
+def write_commands(bin_dir):
+    os.makedirs(bin_dir, exist_ok=True)
+    for name, script in COMMANDS.items():
+        path = os.path.join(bin_dir, name)
+        with open(path, "w") as fh:
+            fh.write('#!/bin/sh\nexec python3 /etc/install/%s "$@"\n' % script)
+        os.chmod(path, 0o755)
 
 
 def build(a):

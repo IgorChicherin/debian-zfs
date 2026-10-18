@@ -36,7 +36,8 @@ check:
 	@command -v docker >/dev/null && echo "ok      docker (make docker-build)" || echo "MISSING docker (only needed for make docker-build)"
 	@for t in lb qemu-system-x86_64 sha256sum; do \
 	  command -v $$t >/dev/null && echo "ok      $$t" || echo "MISSING $$t"; done
-	@test -f /usr/share/OVMF/OVMF_CODE.fd && echo "ok      OVMF" || echo "MISSING OVMF (apt install ovmf)"
+	@ls /usr/share/OVMF/OVMF_CODE*.fd /usr/share/edk2/x64/OVMF_CODE*.fd /usr/share/edk2/ovmf/OVMF_CODE.fd 2>/dev/null | grep -q . \
+	  && echo "ok      OVMF" || echo "MISSING OVMF (apt install ovmf / pacman -S edk2-ovmf)"
 
 clean:
 	rm -rf live-build-work output

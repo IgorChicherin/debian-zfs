@@ -1,9 +1,5 @@
-# Installer shortcuts for the live environment (sourced by bash — keep shell)
-alias zfs-install='sudo python3 /root/install/debian_zfs_install.py'
-alias zfsbootmenu-setup='sudo python3 /root/install/zbm_setup.py'
-alias zram-setup='sudo python3 /root/install/zram_config.py'
-alias zbm-check='sudo python3 /root/install/zbm_check_kernels.py'
-alias zbm-rescue='sudo python3 /root/install/mdraid_rescue.py'
+# Help for the live environment (sourced by bash — keep shell).
+# The commands themselves are in /usr/local/bin (written by scripts/build_iso.py).
 
 zfs-help() {
     cat << 'HELP'
